@@ -15,7 +15,7 @@ def create_app(config, token_generator):
         return jsonify("Welcome to the Ikabot API!")
 
     @app.route("/new_token", methods=["GET"])
-    def get_token_route():
+    def new_token_route():
         try:
             start_time = time.time()
             token = token_generator.get_token()
