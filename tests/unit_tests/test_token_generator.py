@@ -29,3 +29,7 @@ def test_token_characteristics(token_generator):
     token = token_generator.get_token()
     assert isinstance(token, str), "Token should be a string"
     assert " " not in token, "Token should not contain any whitespace"
+    assert any(c.isupper() for c in token) and any(
+        c.islower() for c in token
+    ), "The string must contain both uppercase and lowercase letters."
+    assert any(c.isdigit() for c in token), "The string must contain digits."
