@@ -1,19 +1,43 @@
-from flask import Flask
 import time
-from src.token.getToken import getToken
+
+from flask import Flask, jsonify
+
+from src.token.clean_up_driver_processes import clean_up_driver_processes
+from src.token.TokenGenerator import TokenGenerator
 
 app = Flask(__name__)
 
-@app.route('/')
+token_generator = None
+
+
+@app.route("/")
 def welcome():
-    return 'Welcome to the Ikabot API!'
+    return jsonify("Welcome to the Ikabot API!")
 
-@app.route('/get_token',methods = ['GET'])
+
+@app.route("/new_token", methods=["GET"])
 def get_token_route():
+    try:
         start_time = time.time()
-        token = getToken()
+        token = token_generator.get_token()
         print("Token generated in %s seconds" % (time.time() - start_time))
-        return token
+        return jsonify(token), 200
+    except Exception as e:
+        print(e)
+        return (
+            jsonify(
+                {
+                    "status": "error",
+                    "message": "An error occurred during the token generation : {}".format(
+                        e
+                    ),
+                }
+            ),
+            500,
+        )
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
+    clean_up_driver_processes()
+    token_generator = TokenGenerator()
     app.run()
