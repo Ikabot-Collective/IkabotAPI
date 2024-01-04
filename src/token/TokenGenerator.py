@@ -1,9 +1,7 @@
 import os
-
-from selenium import webdriver
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.support.ui import WebDriverWait
+import random
+from fake_useragent import UserAgent
+from playwright.sync_api import sync_playwright
 
 
 class TokenGenerator:
@@ -29,9 +27,6 @@ class TokenGenerator:
         """
         current_directory = os.path.dirname(os.path.abspath(__file__))
         self.html_file_path = f"file:///{current_directory}/token.html"
-        options = webdriver.ChromeOptions()
-        options.add_argument("--headless")
-        self.driver = webdriver.Chrome(options=options)
 
     def get_token(self):
         """
@@ -42,10 +37,14 @@ class TokenGenerator:
         Returns:
         - str: The generated token.
         """
-        self.driver.get(self.html_file_path)
+        with sync_playwright() as playwright:
+            random_useragent = UserAgent().random
+            browser = playwright.chromium.launch(headless=True)
+            context = browser.new_context(user_agent=random_useragent)
+            page = context.new_page()
+            page.goto(self.html_file_path)
+            token_element = page.wait_for_selector("body > div")
+            token = token_element.inner_text()
+            browser.close()
+        return token
 
-        div = WebDriverWait(self.driver, 10).until(
-            EC.presence_of_element_located((By.XPATH, "//body/div[1]"))
-        )
-
-        return div.text
