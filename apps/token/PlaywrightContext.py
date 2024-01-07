@@ -46,16 +46,17 @@ class PlaywrightContext:
         """
         pass  # No cleanup required
 
-    def close_and_stop(self):
+    def stop(self):
         """
-        Closes the browser and stops the Playwright instance.
+        Stops the Playwright instance.
 
-        This method should be called when you want to clean up resources.
+        This method is intended for cleaning up resources.
+        It should be called when you want to explicitly stop Playwright instance.
         """
-        if self.browser:
-            self.loop.run_until_complete(self.browser.close())
-            self.browser = None  # Set browser to None after closing
         if self.playwright:
             self.loop.run_until_complete(self.playwright.stop())
-            self.playwright = None  # Set playwright to None after stopping
-        self.loop.close()
+            self.playwright = None
+            self.browser = None
+
+        if self.loop.is_closed():
+            self.loop.close()
