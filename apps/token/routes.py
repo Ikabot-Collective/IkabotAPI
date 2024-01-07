@@ -6,15 +6,7 @@ import time
 from fake_useragent import FakeUserAgent
 from flask import jsonify
 
-from apps.token import blueprint
-from apps.token.PlaywrightContext import PlaywrightContext
-
-logger = logging.getLogger()
-
-playwright_context = PlaywrightContext()
-
-# Path to the HTML file for token generation
-html_file_path = f"file:///{os.path.dirname(os.path.abspath(__file__))}/token.html"
+from apps.token import blueprint, html_file_path, logger, playwright_context
 
 
 @blueprint.route("/new_token", methods=["GET"])
@@ -66,12 +58,3 @@ def new_token_route():
             ),
             500,
         )
-
-
-def close_playwright():
-    logger.info("Stopping Playwright instance...")
-    playwright_context.stop()
-    logger.info("Playwright instance stopped.")
-
-
-atexit.register(close_playwright)
