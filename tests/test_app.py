@@ -2,9 +2,13 @@ import json
 
 import pytest
 
+<<<<<<< HEAD
 from app import create_app
 from src.token.clean_up_driver_processes import clean_up_driver_processes
 from src.token.TokenGenerator import TokenGenerator
+=======
+from apps import create_app
+>>>>>>> d9401ee (fix playwrightcontext and tests)
 
 
 @pytest.fixture
