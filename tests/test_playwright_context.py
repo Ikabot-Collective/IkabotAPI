@@ -10,19 +10,28 @@ def playwright_context():
 
 
 def test_playwright_context_initialization(playwright_context: PlaywrightContext):
-    assert playwright_context.loop is not None
-    assert playwright_context.playwright is not None
-    assert playwright_context.browser is not None
+    try:
+        assert playwright_context.loop is not None
+        assert playwright_context.playwright is not None
+        assert playwright_context.browser is not None
+    finally:
+        playwright_context.stop()
 
 
 def test_enter_and_exit_context():
-    with PlaywrightContext() as context:
-        assert isinstance(context, PlaywrightContext)
+    try:
+        with PlaywrightContext() as context:
+            assert isinstance(context, PlaywrightContext)
+    finally:
+        context.stop()
 
 
 def test_context_reusability(playwright_context: PlaywrightContext):
     # Ensure the context can be reused
-    with playwright_context:
-        assert playwright_context.loop is not None
-        assert playwright_context.playwright is not None
-        assert playwright_context.browser is not None
+    try:
+        with playwright_context:
+            assert playwright_context.loop is not None
+            assert playwright_context.playwright is not None
+            assert playwright_context.browser is not None
+    finally:
+        playwright_context.stop()

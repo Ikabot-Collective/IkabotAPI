@@ -44,7 +44,7 @@ class PlaywrightContext:
         This method is called when exiting the context. Currently, no cleanup is performed
         here as cleanup is handled in the main application.
         """
-        pass  # No cleanup required
+        pass
 
     def stop(self):
         """
@@ -58,5 +58,5 @@ class PlaywrightContext:
             self.playwright = None
             self.browser = None
 
-        if self.loop.is_closed():
+        if not self.loop.is_closed():
             self.loop.close()
