@@ -8,9 +8,6 @@ logger = logging.getLogger()
 
 
 def setup_logger():
-    """
-    Set up the logger with a Discord handler and colored console output.
-    """
     coloredlogs.install(level=logging.INFO, logger=logger)
     logger.setLevel(logging.INFO)
 
