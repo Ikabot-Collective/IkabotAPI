@@ -12,8 +12,6 @@ def setup_logger():
     Set up the logger with a Discord handler and colored console output.
     """
     coloredlogs.install(level=logging.INFO, logger=logger)
-    gunicorn_logger = logging.getLogger("gunicorn.error")
-    logger.addHandler(gunicorn_logger)
     logger.setLevel(logging.INFO)
 
 
