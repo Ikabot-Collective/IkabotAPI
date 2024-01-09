@@ -1,4 +1,4 @@
 Flask==3.0.0
 gunicorn==21.2.0
 playwright==1.40.0
-fake_useragent
+fake_useragent==1.4.0
