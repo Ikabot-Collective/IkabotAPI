@@ -1,0 +1,27 @@
+name: Deploy API
+
+on:
+  workflow_dispatch:
+
+jobs:
+  run:
+    runs-on: self-hosted
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Stop and Remove Existing Container
+        run: |
+          if docker inspect ikabotapi &> /dev/null; then
+            docker stop ikabotapi
+            docker rm ikabotapi
+          fi
+
+      - name: Run Container
+        run: docker compose up -d --build
+
+      - name: Display Logs
+        run: python3 -m exendlr ikabotapi "Ikabot API ready!"
+
+      - name: Cleanup unused images
+        run: docker image prune -f

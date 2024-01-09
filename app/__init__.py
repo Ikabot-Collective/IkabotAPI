@@ -38,5 +38,6 @@ def create_app(config):
                 500,
             )
 
+    # This message is used to check if the API is ready in the deployment pipeline
     app.logger.info("Ikabot API ready!")
     return app
