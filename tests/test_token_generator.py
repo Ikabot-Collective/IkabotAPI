@@ -1,13 +1,12 @@
 import pytest
 
-from src.token.TokenGenerator import TokenGenerator
+from app.token.TokenGenerator import TokenGenerator
 
 
 @pytest.fixture
 def token_generator():
-    generator = TokenGenerator()
-    yield generator
-    generator.driver.quit()
+    token_generator = TokenGenerator()
+    yield token_generator
 
 
 def test_token_not_empty(token_generator):
