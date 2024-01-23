@@ -1,12 +1,18 @@
 import logging
 import time
+import traceback
+import threading
 
-from flask import Flask, jsonify
 
+from flask import Flask, jsonify, request, abort
+
+from app.lobby_captcha.image import break_interactive_captcha
+from app.pirates_captcha.ikapiratesdecaptcha import get_captcha_string
 from app.token.TokenGenerator import TokenGenerator
 
 token_generator = TokenGenerator()
-
+threadqueue = []
+lock = threading.Lock()
 
 def create_app(config):
     app = Flask(__name__)
@@ -37,6 +43,45 @@ def create_app(config):
                 ),
                 500,
             )
+
+    def Captcha_detection(image):
+        curr = time.time()
+        result = get_captcha_string(image)
+        print('detect_image done, elapsed: ', str(time.time() - curr ), ' result: ', result)
+        return result
+
+    @app.route('/ikagod/ikabot', methods=['POST'])
+    def home():
+        try:
+            if 'upload_file' in request.files:
+                threadqueue.append(threading.current_thread().ident)
+                print(threading.active_count())
+                while True:
+                    with lock:
+                        if threading.current_thread().ident == threadqueue[-1]:
+                            captcha = Captcha_detection(request.files['upload_file'])
+                            threadqueue.remove(threading.current_thread().ident)
+                            break
+                        else:
+                            time.sleep(0.01)
+
+            elif 'text_image' in request.files and 'drag_icons' in request.files:
+                text_image = request.files['text_image'].read()
+                drag_icons = request.files['drag_icons'].read()
+                try:
+                    captcha = break_interactive_captcha(text_image, drag_icons)
+                    print('SUCCESSFULLY SOLVED INTERACTIVE CAPTCHA WITH NEW FUNC, RESULT: ' + str(captcha) )
+                except:
+                    print('FAILED TO SOLVE INTERACTIVE CAPTCHA WITH NEW FUNC')
+                    print(traceback.format_exc())
+                    captcha = 'Error'
+
+            else:
+                abort(400)
+            return str(captcha)
+        except Exception as e:
+            print(traceback.format_exc())
+            return 'Error'
 
     # This message is used to check if the API is ready in the deployment pipeline
     app.logger.info("Ikabot API ready!")
