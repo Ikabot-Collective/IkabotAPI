@@ -12,7 +12,7 @@ def break_ikariam_pirate_captcha(input_image):
     Parameters
     ----------
     input_image : str
-        path to captcha image
+        Captcha image file object
 
     Returns
     -------
@@ -20,8 +20,12 @@ def break_ikariam_pirate_captcha(input_image):
         List of detections. Each detection object has fields class_id : int, class_name : str, confidence : float, scale : float, boxes : list
         boxes is a list of 4 floats: left, top, width, height. For more information search for "YOLOv8" on the internet.
     """
-    original_image: np.ndarray = cv2.imread(input_image)
+    filestr = input_image.read()
+    assert len(filestr) <= 50000, 'File is too large' #50Kb max
+    file_bytes = np.fromstring(filestr, np.uint8)
+    original_image: np.ndarray = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
     [height, width, _] = original_image.shape
+    assert height <= 100 and width <= 500, 'Image is too large'
     length = max((height, width))
     image = np.zeros((length, length, 3), np.uint8)
     image[0:height, 0:width] = original_image

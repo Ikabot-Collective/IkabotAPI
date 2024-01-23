@@ -45,13 +45,8 @@ def create_app(config):
             )
 
     def Captcha_detection(image):
-
-    # write to disk
-    with open('temppiratecaptcha.png','wb') as file:
-        file.write(image.read())
-
     curr = time.time()
-    result = get_captcha_string('temppiratecaptcha.png')
+    result = get_captcha_string(image)
     print('detect_image done, elapsed: ', str(time.time() - curr ), ' result: ', result)
     return result
 
