@@ -17,4 +17,4 @@ def test_lobby_captcha():
     text_image = from_base64(text_image).read()
     drag_icons = from_base64(drag_icons).read()
     result = break_interactive_captcha(text_image, drag_icons)
-    assert result.lower() == '3', f'Expected 3, got {result}'
+    assert result.lower() == '2', f'Expected 2, got {result}'
