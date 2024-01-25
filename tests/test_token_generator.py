@@ -1,6 +1,6 @@
 import pytest
 
-from app.token.TokenGenerator import TokenGenerator
+from apps.token.TokenGenerator import TokenGenerator
 
 
 @pytest.fixture
