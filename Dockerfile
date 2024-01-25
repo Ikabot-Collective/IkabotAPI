@@ -16,7 +16,4 @@ RUN python -m playwright install-deps
 # Copying src code to Container
 COPY . /usr/src/app
 
-# Exposing Ports
-EXPOSE 5000
-
-CMD ["gunicorn", "-b", "0.0.0.0:5000", "-c", "gunicorn.conf.py", "run:app"]
+CMD ["gunicorn", "-c", "gunicorn.conf.py", "run:app"]
