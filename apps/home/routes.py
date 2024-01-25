@@ -1,8 +1,8 @@
-from flask import jsonify
+from flask import render_template
 
 from apps.home import blueprint
 
 
 @blueprint.route("/")
 def home():
-    return jsonify("Welcome to the Ikabot API!")
+    return render_template("home/index.html")
