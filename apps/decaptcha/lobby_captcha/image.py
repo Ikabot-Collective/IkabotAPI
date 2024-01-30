@@ -1,3 +1,4 @@
+import os
 from base64 import b64encode
 from io import BytesIO
 from time import time
@@ -132,8 +133,8 @@ def break_interactive_captcha(text_image, drag_icons):
     if target == "":
         # if we haven't found target, then something went wrong, save images for later analysis
         rnd = str(round(time()))
-        drag_icons.save("drag_icons-{}.png".format(str(rnd)))
-        text_image_old.save("text_image-{}.png".format(str(rnd)))
+        drag_icons.save("failure_images/drag_icons-{}.png".format(str(rnd)))
+        text_image_old.save("failure_images/text_image-{}.png".format(str(rnd)))
 
     assert target != "", "Couldn't find text image in local store"
 
@@ -145,7 +146,7 @@ def break_interactive_captcha(text_image, drag_icons):
 
     # if we haven't returned it, then something went wrong, save image for later analysis
     rnd = str(round(time()))
-    drag_icons.save("app/lobby_captcha/failures/drag_icons-{}.png".format(str(rnd)))
-    text_image_old.save("app/lobby_captcha/failures/text_image-{}.png".format(str(rnd)))
+    drag_icons.save("failure_images/drag_icons-{}.png".format(str(rnd)))
+    text_image_old.save("failure_images/text_image-{}.png".format(str(rnd)))
 
     raise Exception("Couldn't find icon image in local store")
