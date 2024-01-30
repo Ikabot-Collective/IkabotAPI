@@ -1,7 +1,12 @@
+import os
+
 import cv2.dnn  # opencv-python-rolling==4.7.0.20230211
 import numpy as np
 
-onnx_model = "apps/decaptcha/pirates_captcha/yolov8n-ikariam-pirates-mAP-0_989.onnx"  # path to neural net
+current_directory = os.path.dirname(__file__)
+onnx_model = os.path.join(
+    current_directory, "yolov8n-ikariam-pirates-mAP-0_989.onnx"
+)  # path to neural network model
 
 
 model: cv2.dnn.Net = cv2.dnn.readNetFromONNX(onnx_model)
