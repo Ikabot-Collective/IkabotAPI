@@ -130,12 +130,6 @@ def break_interactive_captcha(text_image, drag_icons):
         if text_image_hash in value:
             target = key
 
-    if target == "":
-        # if we haven't found target, then something went wrong, save images for later analysis
-        rnd = str(round(time()))
-        drag_icons.save("failure_images/drag_icons-{}.png".format(str(rnd)))
-        text_image_old.save("failure_images/text_image-{}.png".format(str(rnd)))
-
     assert target != "", "Couldn't find text image in local store"
 
     i = 0
@@ -143,10 +137,5 @@ def break_interactive_captcha(text_image, drag_icons):
         if image_hash(icon) == target:
             return i
         i += 1
-
-    # if we haven't returned it, then something went wrong, save image for later analysis
-    rnd = str(round(time()))
-    drag_icons.save("failure_images/drag_icons-{}.png".format(str(rnd)))
-    text_image_old.save("failure_images/text_image-{}.png".format(str(rnd)))
 
     raise Exception("Couldn't find icon image in local store")
