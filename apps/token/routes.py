@@ -7,8 +7,8 @@ from flask import jsonify
 from apps.token import blueprint, logger, token_generator
 
 
-@blueprint.route("/new_token", methods=["GET"])
-def new_token_route():
+@blueprint.route("/token", methods=["GET"])
+def token_route():
     try:
         start_time = time.time()
         token = token_generator.get_token()
