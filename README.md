@@ -37,7 +37,7 @@ To host the API yourself, ensure Docker is installed. Follow the instructions ba
 - **Windows:**
   Install Docker Desktop using the [Windows Installation Guide](https://docs.docker.com/desktop/install/windows-install/).
 
-#### Launching the API
+#### Run the API in Production
 
 1. Download the source code from the repository (ZIP or Git clone).
 2. Navigate to the downloaded source code directory.
@@ -48,3 +48,19 @@ To host the API yourself, ensure Docker is installed. Follow the instructions ba
    ```
 
    The default listening port is set to 80; you can adjust this in the Nginx configuration: `/nginx/app.conf`.
+
+#### Launch the API in Development Mode
+1. Download the source code from the repository (ZIP or Git clone).
+2. Navigate to the downloaded source code directory.
+3. Install the required dependencies by running:
+
+  ```bash
+  pip install -r requirements.txt
+  ```
+4. Run the API in development mode using the following command:
+
+  ```bash
+  python run.py
+  ```
+
+The API will be accessible at http://localhost:5000.
