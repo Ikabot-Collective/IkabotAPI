@@ -32,13 +32,13 @@ def deprecated_decaptcha():
                 logger.info(
                     f"Successfully solved interactive captcha, result: {captcha}"
                 )
-            except Exception as e:
+            except Exception:
                 logger.exception("Failed to solve interactive captcha")
                 return (
                     jsonify(
                         {
                             "status": "error",
-                            "message": f"An error occurred during captcha resolution: {e}",
+                            "message": "An error occurred during captcha resolution",
                         }
                     ),
                     500,
@@ -57,13 +57,13 @@ def deprecated_decaptcha():
 
         return jsonify(captcha), 200
 
-    except Exception as e:
+    except Exception:
         logger.exception("Error in decaptcha route")
         return (
             jsonify(
                 {
                     "status": "error",
-                    "message": f"An error occurred in the decaptcha route: {e}",
+                    "message": "An error occurred during captcha resolution",
                 }
             ),
             500,
@@ -97,13 +97,13 @@ def decaptcha_pirate():
 
         return jsonify(captcha), 200
 
-    except Exception as e:
+    except Exception:
         logger.exception("Error in decaptcha_pirate route")
         return (
             jsonify(
                 {
                     "status": "error",
-                    "message": f"An error occurred in the decaptcha_pirate route: {e}",
+                    "message": "An error occurred during captcha resolution",
                 }
             ),
             500,
@@ -121,13 +121,13 @@ def decaptcha_lobby():
                 logger.info(
                     f"Successfully solved interactive captcha, result: {captcha}"
                 )
-            except Exception as e:
+            except Exception:
                 logger.exception("Failed to solve interactive captcha")
                 return (
                     jsonify(
                         {
                             "status": "error",
-                            "message": f"An error occurred during captcha resolution: {e}",
+                            "message": "An error occurred during captcha resolution",
                         }
                     ),
                     500,
@@ -146,13 +146,13 @@ def decaptcha_lobby():
 
         return jsonify(captcha), 200
 
-    except Exception as e:
+    except Exception:
         logger.exception("Error in decaptcha_lobby route")
         return (
             jsonify(
                 {
                     "status": "error",
-                    "message": f"An error occurred in the decaptcha_lobby route: {e}",
+                    "message": "An error occurred during captcha resolution",
                 }
             ),
             500,
