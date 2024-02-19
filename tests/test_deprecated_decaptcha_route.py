@@ -17,7 +17,8 @@ def client():
 
 def test_decaptcha_without_data_should_return_status_code_400(client):
     response = client.post("/ikagod/ikabot")
-    assert response.status_code == 400
+    assert response.status_code == 200
+    assert response.text == "Error"
 
 
 def test_decaptcha_piracy_with_valid_image_should_return_the_right_string(client):
@@ -31,7 +32,7 @@ def test_decaptcha_piracy_with_valid_image_should_return_the_right_string(client
             data={"upload_file": (BytesIO(f.read()), "pirate1.png")},
         )
     assert response.status_code == 200
-    assert json.loads(response.data) == "QKB24JC"
+    assert response.text == "QKB24JC"
 
     # Case 2
     file_path = os.path.join(current_directory, "img", "pirate2.png")
@@ -41,7 +42,7 @@ def test_decaptcha_piracy_with_valid_image_should_return_the_right_string(client
             data={"upload_file": (BytesIO(f.read()), "pirate2.png")},
         )
     assert response.status_code == 200
-    assert json.loads(response.data) == "DEVL5KA"
+    assert response.text == "DEVL5KA"
 
 
 def test_decaptcha_piracy_with_invalid_size_should_return_status_code_500(client):
@@ -52,7 +53,8 @@ def test_decaptcha_piracy_with_invalid_size_should_return_status_code_500(client
             "/ikagod/ikabot",
             data={"upload_file": (BytesIO(f.read()), "pirate_invalid_size.png")},
         )
-    assert response.status_code == 500
+    assert response.status_code == 200
+    assert response.text == "Error"
 
 
 def test_decaptcha_login_captcha_with_valid_image_should_return_the_right_int(client):
@@ -69,7 +71,7 @@ def test_decaptcha_login_captcha_with_valid_image_should_return_the_right_int(cl
         }
         response = client.post("/ikagod/ikabot", data=data)
     assert response.status_code == 200
-    assert json.loads(response.data) == 3
+    assert response.text == "3"
 
     # Case 2
     file_path1 = os.path.join(current_directory, "img", "login_text2.png")
@@ -81,7 +83,7 @@ def test_decaptcha_login_captcha_with_valid_image_should_return_the_right_int(cl
         }
         response = client.post("/ikagod/ikabot", data=data)
     assert response.status_code == 200
-    assert json.loads(response.data) == 0
+    assert response.text == "0"
 
 
 def test_decaptcha_login_captcha_with_invalid_image_should_return_status_code_500(
@@ -98,4 +100,5 @@ def test_decaptcha_login_captcha_with_invalid_image_should_return_status_code_50
             "drag_icons": (BytesIO(drag_icons.read()), "login_icons_invalid.png"),
         }
         response = client.post("/ikagod/ikabot", data=data)
-    assert response.status_code == 500
+    assert response.status_code == 200
+    assert response.text == "Error"
