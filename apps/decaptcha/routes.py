@@ -2,7 +2,7 @@ import logging
 import threading
 import time
 
-from flask import jsonify, request
+from flask import abort, jsonify, request
 
 from apps.decaptcha import Captcha_detection, blueprint, lock, logger, threadqueue
 from apps.decaptcha.lobby_captcha.image import break_interactive_captcha
@@ -34,40 +34,16 @@ def deprecated_decaptcha():
                 )
             except Exception:
                 logger.exception("Failed to solve interactive captcha")
-                return (
-                    jsonify(
-                        {
-                            "status": "error",
-                            "message": "An error occurred during captcha resolution",
-                        }
-                    ),
-                    500,
-                )
+                captcha = "Error"
 
         else:
-            return (
-                jsonify(
-                    {
-                        "status": "error",
-                        "message": "Bad Request: Invalid input",
-                    }
-                ),
-                400,
-            )
+            abort(400)
 
-        return jsonify(captcha), 200
+        return str(captcha)
 
     except Exception:
         logger.exception("Error in decaptcha route")
-        return (
-            jsonify(
-                {
-                    "status": "error",
-                    "message": "An error occurred during captcha resolution",
-                }
-            ),
-            500,
-        )
+        return "Error"
 
 
 @blueprint.route("/decaptcha/pirate", methods=["POST"])
