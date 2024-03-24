@@ -8,7 +8,8 @@ from apps.decaptcha import Captcha_detection, blueprint, lock, logger, threadque
 from apps.decaptcha.lobby_captcha.image import break_interactive_captcha
 
 
-# TODO: Remove this route in the future
+# DO NOT CHANGE THIS ENDPOINT CAUSE IT WILL BREAK IKABOT
+# Remove this route after the migration to the new decaptcha endpoints
 @blueprint.route("/ikagod/ikabot", methods=["POST"])
 def deprecated_decaptcha():
     try:
@@ -46,7 +47,7 @@ def deprecated_decaptcha():
         return "Error"
 
 
-@blueprint.route("/decaptcha/pirate", methods=["POST"])
+@blueprint.route("v1/decaptcha/pirate", methods=["POST"])
 def decaptcha_pirate():
     try:
         if "image" in request.files:
@@ -86,7 +87,7 @@ def decaptcha_pirate():
         )
 
 
-@blueprint.route("/decaptcha/lobby", methods=["POST"])
+@blueprint.route("v1/decaptcha/lobby", methods=["POST"])
 def decaptcha_lobby():
     try:
         if "text_image" in request.files and "icons_image" in request.files:
