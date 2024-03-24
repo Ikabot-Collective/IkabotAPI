@@ -16,7 +16,7 @@ def client():
 
 
 def test_decaptcha_without_data_should_return_status_code_400(client):
-    response = client.post("/decaptcha/pirate")
+    response = client.post("v1/decaptcha/pirate")
     assert response.status_code == 400
 
 
@@ -27,7 +27,7 @@ def test_decaptcha_piracy_with_valid_image_should_return_the_right_string(client
     file_path = os.path.join(current_directory, "img", "pirate1.png")
     with open(file_path, "rb") as f:
         response = client.post(
-            "/decaptcha/pirate",
+            "v1/decaptcha/pirate",
             data={"image": (BytesIO(f.read()), "pirate1.png")},
         )
     assert response.status_code == 200
@@ -37,7 +37,7 @@ def test_decaptcha_piracy_with_valid_image_should_return_the_right_string(client
     file_path = os.path.join(current_directory, "img", "pirate2.png")
     with open(file_path, "rb") as f:
         response = client.post(
-            "/decaptcha/pirate",
+            "v1/decaptcha/pirate",
             data={"image": (BytesIO(f.read()), "pirate2.png")},
         )
     assert response.status_code == 200
@@ -49,7 +49,7 @@ def test_decaptcha_piracy_with_invalid_size_should_return_status_code_500(client
     file_path = os.path.join(current_directory, "img", "pirate_invalid_size.png")
     with open(file_path, "rb") as f:
         response = client.post(
-            "/decaptcha/pirate",
+            "v1/decaptcha/pirate",
             data={"image": (BytesIO(f.read()), "pirate_invalid_size.png")},
         )
     assert response.status_code == 500

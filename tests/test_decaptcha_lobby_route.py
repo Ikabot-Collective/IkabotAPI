@@ -16,7 +16,7 @@ def client():
 
 
 def test_decaptcha_without_data_should_return_status_code_400(client):
-    response = client.post("/decaptcha/lobby")
+    response = client.post("v1/decaptcha/lobby")
     assert response.status_code == 400
 
 
@@ -32,7 +32,7 @@ def test_decaptcha_login_captcha_with_valid_image_should_return_the_right_int(cl
             "text_image": (BytesIO(text_image.read()), "login_text1.png"),
             "icons_image": (BytesIO(drag_icons.read()), "login_icons1.png"),
         }
-        response = client.post("/decaptcha/lobby", data=data)
+        response = client.post("v1/decaptcha/lobby", data=data)
     assert response.status_code == 200
     assert json.loads(response.data) == 3
 
@@ -44,7 +44,7 @@ def test_decaptcha_login_captcha_with_valid_image_should_return_the_right_int(cl
             "text_image": (BytesIO(text_image.read()), "login_text2.png"),
             "icons_image": (BytesIO(drag_icons.read()), "login_icons2.png"),
         }
-        response = client.post("/decaptcha/lobby", data=data)
+        response = client.post("v1/decaptcha/lobby", data=data)
     assert response.status_code == 200
     assert json.loads(response.data) == 0
 
@@ -62,5 +62,5 @@ def test_decaptcha_login_captcha_with_invalid_image_should_return_status_code_50
             "text_image": (BytesIO(text_image.read()), "login_text_invalid.png"),
             "icons_image": (BytesIO(drag_icons.read()), "login_icons_invalid.png"),
         }
-        response = client.post("/decaptcha/lobby", data=data)
+        response = client.post("v1/decaptcha/lobby", data=data)
     assert response.status_code == 500
