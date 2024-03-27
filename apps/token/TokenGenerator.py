@@ -23,18 +23,25 @@ class TokenGenerator:
         """
         current_directory = os.path.dirname(os.path.abspath(__file__))
         self.html_file_path = f"file:///{current_directory}/token.html"
+        self.user_agents = {}
 
-    def get_token(self):
+    def get_token(self, user_id):
         """
         Get a token from the HTML file.
+        
+        Checks the dictionary for a user agent for the given user_id.
+        If a match is not found, generates a new random user agent and saves it in the dictionary.
+        If a match is found, uses the saved user agent from the dictionary for that user_id.
 
         Waits for the presence of a specific div element in the HTML file and returns its text content as the token.
 
         Returns:
         - str: The generated token.
         """
+        if user_id not in self.user_agents:
+            self.user_agents[user_id] = FakeUserAgent().random
+        random_useragent = self.user_agents[user_id]
         with sync_playwright() as playwright:
-            random_useragent = FakeUserAgent().random
             browser = playwright.chromium.launch(headless=True)
             context = browser.new_context(user_agent=random_useragent)
             page = context.new_page()
