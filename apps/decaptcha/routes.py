@@ -47,7 +47,7 @@ def deprecated_decaptcha():
         return "Error"
 
 
-@blueprint.route("v1/decaptcha/pirate", methods=["POST"])
+@blueprint.route("/v1/decaptcha/pirate", methods=["POST"])
 def decaptcha_pirate():
     try:
         if "image" in request.files:
@@ -87,7 +87,7 @@ def decaptcha_pirate():
         )
 
 
-@blueprint.route("v1/decaptcha/lobby", methods=["POST"])
+@blueprint.route("/v1/decaptcha/lobby", methods=["POST"])
 def decaptcha_lobby():
     try:
         if "text_image" in request.files and "icons_image" in request.files:

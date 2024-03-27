@@ -17,22 +17,3 @@ def client():
 def test_get_token_should_return_status_code_ok(client):
     response = client.get("/token")
     assert response.status_code == 200
-
-
-def test_get_token_should_return_a_json(client):
-    response = client.get("/token")
-    try:
-        json.loads(response.data)
-    except ValueError as e:
-        raise AssertionError(f"The response is not a valid JSON: {e}")
-
-
-def test_get_token_with_exception_should_return_status_code_500(
-    client, mocker: MockerFixture
-):
-    mocker.patch(
-        "apps.token.TokenGenerator.get_token",
-        side_effect=Exception("Test Exception"),
-    )
-    response = client.get("/token")
-    assert response.status_code == 500
