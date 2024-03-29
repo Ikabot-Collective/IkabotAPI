@@ -1,19 +1,17 @@
-FROM python:3.10
+FROM python:3.10-slim
 
-# Creating Application Source Code Directory
-RUN mkdir -p /usr/src/app
+COPY requirements.txt /ikabotapi/
+WORKDIR /ikabotapi
 
-# Setting Home Directory
-WORKDIR /usr/src/app
+# Install dependencies
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r requirements.txt
+RUN apt-get update && \ 
+    apt-get clean  && \
+    rm -rf /var/lib/apt/lists/*
+RUN python -m playwright install && \
+    python -m playwright install-deps
 
-# Installing python dependencies
-COPY requirements.txt /usr/src/app/
-RUN pip install --upgrade pip
-RUN pip install --no-cache-dir -r requirements.txt
-RUN python -m playwright install
-RUN python -m playwright install-deps
-
-# Copying src code to Container
-COPY . /usr/src/app
+COPY . .
 
 CMD ["gunicorn", "-c", "gunicorn.conf.py", "run:app"]
