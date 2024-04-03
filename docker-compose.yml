@@ -6,6 +6,8 @@ services:
     restart: always
     networks:
       - web_network
+    environment:
+      - LOGS_WEBHOOK_URL
   nginx:
     container_name: nginx
     restart: always
