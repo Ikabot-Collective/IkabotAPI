@@ -1,6 +1,6 @@
 FROM python:3.10-slim
 
-COPY requirements.txt /ikabotapi/
+COPY . /ikabotapi/
 WORKDIR /ikabotapi
 
 # Install dependencies
@@ -11,7 +11,5 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 RUN python -m playwright install && \
     python -m playwright install-deps
-
-COPY . .
 
 CMD ["gunicorn", "-c", "gunicorn.conf.py", "run:app"]
