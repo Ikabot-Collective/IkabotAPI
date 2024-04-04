@@ -8,3 +8,5 @@ onnxruntime==1.14.0
 numpy==1.21.6
 opencv-python-rolling==4.7.0.20230211
 coloredlogs==15.0.1
+python-logging-discord-handler==0.1.4
+python-dotenv==1.0.1
