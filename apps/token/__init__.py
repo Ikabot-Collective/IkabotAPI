@@ -1,4 +1,6 @@
+import json
 import logging
+import os
 import threading
 import time
 
@@ -10,7 +12,9 @@ logger = logging.getLogger()
 
 blueprint = Blueprint("token_blueprint", __name__, url_prefix="")
 
-token_generator = TokenGenerator()
+current_directory = os.path.dirname(os.path.abspath(__file__))
+supported_user_agents = json.load(open(f"{current_directory}/SupportedUserAgents.json"))
+token_generator = TokenGenerator(supported_user_agents=supported_user_agents)
 
 tokenList = []
 refreshCounter = 0
