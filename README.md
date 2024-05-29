@@ -24,18 +24,13 @@ The Ikabot API is hosted and publicly accessible. No installation is required; r
 
 ### Prerequisites
 
-To host the API yourself, ensure Docker is installed. Follow the instructions based on your operating system:
-
-- **Linux:**
-  ```bash
-  curl -fsSL https://get.docker.com -o get-docker.sh
-  sudo sh get-docker.sh
-  ```
-
-- **Windows:**
-  Install Docker Desktop using the [Windows Installation Guide](https://docs.docker.com/desktop/install/windows-install/).
+To host the API in a production Linux environment, Docker must be installed on your system.
 
 ### Run the API
+
+You can launch the API using one of the following methods, depending on whether you want to use Nginx or an existing reverse proxy.
+
+#### Method 1: Using Docker with Nginx
 
 1. Download the source code from the repository (ZIP or Git clone).
 2. Navigate to the downloaded source code directory.
@@ -46,6 +41,26 @@ To host the API yourself, ensure Docker is installed. Follow the instructions ba
    ```
 
    The default listening port is set to 80; you can adjust this in the Nginx configuration: `/nginx/app.conf`.
+
+#### Method 2: Without Nginx (Using an Existing Reverse Proxy)
+
+If you already have a reverse proxy configured on your environment, you can run the API without Nginx:
+
+1. Download the source code from the repository (ZIP or Git clone).
+2. Navigate to the downloaded source code directory.
+3. Run the following Docker commands to build and launch the API:
+
+   ```bash
+   docker build -t ikabotapi .
+   docker run -d -p 5005:5005 ikabotapi
+   ```
+
+   The default listening port is set to 5005. You can map a different port according to your environment. For example, to map port 8000 to the API's port 5005, use the following command:
+
+   ```bash
+   docker run -d -p 8000:5005 ikabotapi
+   ```
+
 
 ## Development Instructions
 
