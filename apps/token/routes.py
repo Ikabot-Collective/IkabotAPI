@@ -5,7 +5,6 @@ from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Query
 
-from apps.models import TokenResponse
 from apps.token import (
     logger,
     supported_user_agents,
@@ -15,7 +14,7 @@ from apps.token import (
 router = APIRouter()
 
 
-@router.get("/v1/token", response_model=TokenResponse)
+@router.get("/v1/token")
 def v1_token_route(
     user_agent: Annotated[
         str, Query(description="User agent string for token generation")
@@ -29,7 +28,7 @@ def v1_token_route(
         user_agent: The user agent string to generate a token for
 
     Returns:
-        TokenResponse: Contains the generated token and metadata
+        str: The generated token string
 
     Raises:
         HTTPException: 400 if user_agent is invalid or unsupported
@@ -51,16 +50,12 @@ def v1_token_route(
         token_data = token_generator.get_token(user_agent)
         processing_time = time.time() - start_time
 
-        return TokenResponse(
-            status="success",
-            token=(
-                token_data
-                if isinstance(token_data, str)
-                else token_data.get("token", "")
-            ),
-            user_agent=user_agent,
-            timestamp=time.time(),
+        # Return the token string
+        token_string = (
+            token_data if isinstance(token_data, str) else token_data.get("token", "")
         )
+
+        return token_string
     except HTTPException:
         raise
     except Exception as e:

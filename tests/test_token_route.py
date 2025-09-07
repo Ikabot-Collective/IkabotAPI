@@ -39,11 +39,10 @@ def test_v1_token_route_with_supported_user_agent_should_return_200(client: Test
     response = client.get(f"/v1/token?user_agent={user_agent}")
     assert response.status_code == 200
 
-    token_response = response.json()
-    assert token_response["status"] == "success"
-    assert "token" in token_response
-    assert token_response["user_agent"] == user_agent
-    assert "timestamp" in token_response
+    # Returns the token string
+    token_string = response.json()
+    assert isinstance(token_string, str)
+    assert len(token_string) > 0
 
     # Verify token format using existing validator
-    verify_token_format(token_response["token"])
+    verify_token_format(token_string)

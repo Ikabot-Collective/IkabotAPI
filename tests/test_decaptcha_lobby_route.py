@@ -33,10 +33,10 @@ def test_decaptcha_login_captcha_with_valid_image_should_return_solution(
         response = client.post("/v1/decaptcha/lobby", files=files)
 
     assert response.status_code == 200
-    response_json = response.json()
-    assert response_json["status"] == "success"
-    assert "solution" in response_json
-    assert response_json["solution"] == "3"
+    # Returns the solution integer
+    solution = response.json()
+    assert isinstance(solution, int)
+    assert solution == 3
 
     # Case 2
     file_path1 = os.path.join(current_directory, "img", "login_text2.png")
@@ -54,10 +54,10 @@ def test_decaptcha_login_captcha_with_valid_image_should_return_solution(
         response = client.post("/v1/decaptcha/lobby", files=files)
 
     assert response.status_code == 200
-    response_json = response.json()
-    assert response_json["status"] == "success"
-    assert "solution" in response_json
-    assert response_json["solution"] == "0"
+    # Returns the solution integer
+    solution = response.json()
+    assert isinstance(solution, int)
+    assert solution == 0
 
 
 def test_decaptcha_login_captcha_with_invalid_image_should_return_500(

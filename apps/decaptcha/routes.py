@@ -7,12 +7,11 @@ from fastapi import APIRouter, File, HTTPException, UploadFile
 
 from apps.decaptcha import Captcha_detection, lock, logger, threadqueue
 from apps.decaptcha.lobby_captcha.image import break_interactive_captcha
-from apps.models import CaptchaResponse, PirateCaptchaResponse
 
 router = APIRouter()
 
 
-@router.post("/v1/decaptcha/pirate", response_model=PirateCaptchaResponse)
+@router.post("/v1/decaptcha/pirate")
 def decaptcha_pirate(
     image: Annotated[UploadFile, File(description="Pirate captcha image to solve")],
 ):
@@ -24,7 +23,7 @@ def decaptcha_pirate(
         image: The pirate captcha image file
 
     Returns:
-        PirateCaptchaResponse: Contains coordinates of detected ships and confidence
+        str: The captcha solution string
 
     Raises:
         HTTPException: 400 if no image provided
@@ -52,22 +51,12 @@ def decaptcha_pirate(
 
         processing_time = time.time() - start_time
 
-        # Handle both string and dict responses from Captcha_detection
+        # Return the result string
         if isinstance(captcha_result, str):
-            # Parse string result or create default response
-            return PirateCaptchaResponse(
-                status="success",
-                coordinates=[],  # Parse from string if needed
-                confidence=1.0,
-                processing_time=processing_time,
-            )
+            return captcha_result
         else:
-            return PirateCaptchaResponse(
-                status="success",
-                coordinates=captcha_result.get("coordinates", []),
-                confidence=captcha_result.get("confidence", 1.0),
-                processing_time=processing_time,
-            )
+            # If it's a dict, extract the main result or return empty string
+            return captcha_result.get("result", "")
 
     except HTTPException:
         raise
@@ -78,7 +67,7 @@ def decaptcha_pirate(
         )
 
 
-@router.post("/v1/decaptcha/lobby", response_model=CaptchaResponse)
+@router.post("/v1/decaptcha/lobby")
 async def decaptcha_lobby(
     text_image: Annotated[
         UploadFile, File(description="Text portion of the lobby captcha")
@@ -95,7 +84,7 @@ async def decaptcha_lobby(
         icons_image: The icons portion of the captcha
 
     Returns:
-        CaptchaResponse: Contains the solution and processing metadata
+        int: The solution as an integer (0, 1, 2, or 3)
 
     Raises:
         HTTPException: 400 if images are missing
@@ -121,11 +110,8 @@ async def decaptcha_lobby(
 
             processing_time = time.time() - start_time
 
-            return CaptchaResponse(
-                status="success",
-                solution=str(captcha_solution),
-                processing_time=processing_time,
-            )
+            # Return the solution integer
+            return int(captcha_solution)
 
         except Exception as e:
             logger.exception("Failed to solve interactive captcha")

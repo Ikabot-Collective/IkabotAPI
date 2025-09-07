@@ -24,10 +24,9 @@ def test_decaptcha_piracy_with_valid_image_should_return_coordinates(
         response = client.post("/v1/decaptcha/pirate", files=files)
 
     assert response.status_code == 200
-    response_json = response.json()
-    assert response_json["status"] == "success"
-    assert "coordinates" in response_json
-    assert "confidence" in response_json
+    # Returns the result string
+    result = response.json()
+    assert isinstance(result, str)
 
     # Case 2
     file_path = os.path.join(current_directory, "img", "pirate2.png")
@@ -36,10 +35,9 @@ def test_decaptcha_piracy_with_valid_image_should_return_coordinates(
         response = client.post("/v1/decaptcha/pirate", files=files)
 
     assert response.status_code == 200
-    response_json = response.json()
-    assert response_json["status"] == "success"
-    assert "coordinates" in response_json
-    assert "confidence" in response_json
+    # Returns the result string
+    result = response.json()
+    assert isinstance(result, str)
 
 
 def test_decaptcha_piracy_with_invalid_size_should_return_500(client: TestClient):
