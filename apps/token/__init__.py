@@ -9,8 +9,3 @@ logger = logging.getLogger()
 current_directory = os.path.dirname(os.path.abspath(__file__))
 supported_user_agents = json.load(open(f"{current_directory}/SupportedUserAgents.json"))
 token_generator = TokenGenerator(supported_user_agents=supported_user_agents)
-
-
-def getTokenFromList():
-    """Generate token on demand - simple and reliable approach"""
-    return token_generator.get_token()
