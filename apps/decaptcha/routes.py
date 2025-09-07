@@ -52,11 +52,7 @@ def decaptcha_pirate(
         processing_time = time.time() - start_time
 
         # Return the result string
-        if isinstance(captcha_result, str):
-            return captcha_result
-        else:
-            # If it's a dict, extract the main result or return empty string
-            return captcha_result.get("result", "")
+        return captcha_result
 
     except HTTPException:
         raise
