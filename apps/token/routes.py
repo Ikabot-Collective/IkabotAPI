@@ -17,15 +17,15 @@ router = APIRouter()
 @router.get("/v1/token")
 def v1_token_route(
     user_agent: Annotated[
-        str, Query(description="User agent string for token generation")
-    ],
+        str | None, Query(description="User agent string for token generation")
+    ] = None,
 ):
     """
     Generate a Blackbox token for the specified user agent.
     NOTE: Synchronous to avoid conflicts with sync Playwright code
 
     Args:
-        user_agent: The user agent string to generate a token for
+        user_agent: The user agent string to generate a token for (optional)
 
     Returns:
         str: The generated Blackbox token string
@@ -35,12 +35,8 @@ def v1_token_route(
         HTTPException: 500 if token generation fails
     """
     try:
-        if not user_agent or user_agent == "":
-            raise HTTPException(
-                status_code=400, detail="Bad Request: Empty user_agent query parameter"
-            )
-
-        if user_agent not in supported_user_agents:
+        # If user_agent is None or empty, use default (random) user agent
+        if user_agent and user_agent != "" and user_agent not in supported_user_agents:
             raise HTTPException(
                 status_code=400,
                 detail="Bad Request: Unsupported user_agent query parameter",
