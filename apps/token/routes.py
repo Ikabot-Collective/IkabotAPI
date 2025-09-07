@@ -47,13 +47,8 @@ def v1_token_route(
             )
 
         start_time = time.time()
-        token_data = token_generator.get_token(user_agent)
+        token_string = token_generator.get_token(user_agent)
         processing_time = time.time() - start_time
-
-        # Return the token string
-        token_string = (
-            token_data if isinstance(token_data, str) else token_data.get("token", "")
-        )
 
         return token_string
     except HTTPException:
