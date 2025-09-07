@@ -16,7 +16,7 @@ def decaptcha_pirate(
     image: Annotated[UploadFile, File(description="Pirate captcha image to solve")],
 ):
     """
-    Solve a pirate captcha by detecting ship positions.
+    Solve a pirate captcha for Pirate Fortress missions.
     NOTE: Synchronous to work with existing threading logic
 
     Args:
