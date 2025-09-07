@@ -21,14 +21,14 @@ def v1_token_route(
     ],
 ):
     """
-    Generate a token for the specified user agent.
+    Generate a Blackbox token for the specified user agent.
     NOTE: Synchronous to avoid conflicts with sync Playwright code
 
     Args:
         user_agent: The user agent string to generate a token for
 
     Returns:
-        str: The generated token string
+        str: The generated Blackbox token string
 
     Raises:
         HTTPException: 400 if user_agent is invalid or unsupported
