@@ -1,3 +1,2 @@
-from flask import Blueprint
-
-blueprint = Blueprint("home_blueprint", __name__, url_prefix="")
+# FastAPI router will be imported from routes.py
+# This file is kept for backward compatibility

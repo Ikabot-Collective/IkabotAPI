@@ -57,7 +57,7 @@ def break_ikariam_pirate_captcha(input_image):
     """
     filestr = input_image.read()
     assert len(filestr) <= 50000, "File is too large"  # 50Kb max
-    file_bytes = np.fromstring(filestr, np.uint8)
+    file_bytes = np.frombuffer(filestr, np.uint8)
     original_image: np.ndarray = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
     [height, width, _] = original_image.shape
     assert height <= 100 and width <= 500, "Image is too large"
