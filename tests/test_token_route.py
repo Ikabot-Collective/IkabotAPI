@@ -4,21 +4,32 @@ from fastapi.testclient import TestClient
 from tests.token_validator import verify_token_format
 
 
-def test_v1_token_route_without_user_agent_should_return_422(client: TestClient):
-    """Test that missing user_agent parameter returns 422 (FastAPI validation error)"""
+def test_v1_token_route_without_user_agent_should_return_200(client: TestClient):
+    """Test that missing user_agent parameter returns 200 with random user agent"""
     response = client.get("/v1/token")
-    assert response.status_code == 422
-    response_json = response.json()
-    assert "detail" in response_json
+    assert response.status_code == 200
+    
+    # Returns the token string
+    token_string = response.json()
+    assert isinstance(token_string, str)
+    assert len(token_string) > 0
+
+    # Verify token format using existing validator
+    verify_token_format(token_string)
 
 
-def test_v1_token_route_with_empty_user_agent_should_return_400(client: TestClient):
-    """Test that empty user_agent returns 400"""
+def test_v1_token_route_with_empty_user_agent_should_return_200(client: TestClient):
+    """Test that empty user_agent returns 200 with random user agent"""
     response = client.get("/v1/token?user_agent=")
-    assert response.status_code == 400
-    response_json = response.json()
-    assert "detail" in response_json
-    assert "Empty user_agent" in response_json["detail"]
+    assert response.status_code == 200
+    
+    # Returns the token string
+    token_string = response.json()
+    assert isinstance(token_string, str)
+    assert len(token_string) > 0
+
+    # Verify token format using existing validator
+    verify_token_format(token_string)
 
 
 def test_v1_token_route_with_unsupported_user_agent_should_return_400(
