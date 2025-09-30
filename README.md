@@ -1,6 +1,6 @@
 # Ikabot API
 
-The Ikabot API is a RESTful service crafted to augment Ikabot's capabilities across various scenarios.
+The **Ikabot API** is a RESTful service built with **FastAPI**, designed to enhance Ikabot's capabilities across various scenarios.
 
 ## Features
 
@@ -16,15 +16,24 @@ Automatically resolve captchas associated with piracy-related actions.
 
 Generate Blackbox tokens for streamlined authentication.
 
+---
+
 ## Accessing the Hosted API
 
 The Ikabot API is hosted and publicly accessible. No installation is required; refer to the Wiki for details on available endpoints and their usage.
+
+When self-hosting locally:
+
+* Swagger UI → `http://localhost:5000/docs` (development) or `http://localhost:5005/docs` (production-like)
+* ReDoc → `http://localhost:5000/redoc` / `http://localhost:5005/redoc`
+
+---
 
 ## Self-Hosting Instructions for Production
 
 ### Prerequisites
 
-To host the API in a production Linux environment, Docker must be installed on your system.
+* **Docker** installed on your Linux server.
 
 ### Run the API
 
@@ -32,85 +41,113 @@ You can launch the API using one of the following methods, depending on whether 
 
 #### Method 1: Using Docker with Nginx
 
-1. Download the source code from the repository (ZIP or Git clone).
-2. Navigate to the downloaded source code directory.
-3. Run the following Docker Compose command to build and launch the API:
+```bash
+docker-compose up -d --build
+```
 
-   ```bash
-   docker-compose up -d --build
-   ```
-
-   The default listening port is set to 80; you can adjust this in the Nginx configuration: `/nginx/app.conf`.
+* Default port: **80** (configurable in `/nginx/app.conf`).
 
 #### Method 2: Without Nginx (Using an Existing Reverse Proxy)
 
-If you already have a reverse proxy configured on your environment, you can run the API without Nginx:
+```bash
+docker build -t ikabotapi .
+docker run -d -p 5005:5005 ikabotapi
+```
 
-1. Download the source code from the repository (ZIP or Git clone).
-2. Navigate to the downloaded source code directory.
-3. Run the following Docker commands to build and launch the API:
+> Need a different host port?
 
-   ```bash
-   docker build -t ikabotapi .
-   docker run -d -p 5005:5005 ikabotapi
-   ```
+```bash
+docker run -d -p 8000:5005 ikabotapi
+```
 
-   The default listening port is set to 5005. You can map a different port according to your environment. For example, to map port 8000 to the API's port 5005, use the following command:
-
-   ```bash
-   docker run -d -p 8000:5005 ikabotapi
-   ```
-
+---
 
 ## Development Instructions
 
 ### Prerequisites
 
-Before setting up and launching the API, make sure to have the following prerequisites installed:
-1. **Python 3.10**: Ensure that Python 3.10 is installed on your system.
-2. **pip**: The Python package installer. Make sure it is installed as it is necessary for managing the project dependencies.
+* **Python 3.10**
+* **Poetry**
+* **Playwright** (browsers required at runtime)
 
-### Setting Up the Environment
+### Setup (local development)
 
-Once the prerequisites are in place, follow these steps to set up your development environment:
-1. Download the source code from the repository (ZIP or Git clone).
-2. Navigate to the downloaded source code directory.
-3. Install the project dependencies by running:
+```bash
+git clone <repo_url>
+cd ikabotapi
+
+# Install all dependencies (main + dev groups from pyproject.toml)
+poetry install
+
+# Install Playwright browsers (Chromium)
+# On Linux: --with-deps is recommended; on macOS/Windows, omit if not needed
+poetry run playwright install --with-deps chromium
+```
+
+### Run (development, with auto-reload)
+
+```bash
+poetry run uvicorn main:app --reload --host 0.0.0.0 --port 5000
+```
+
+* API: `http://localhost:5000`
+* Docs: `http://localhost:5000/docs`
+
+### Run (production-like, mirrors Docker)
+
+```bash
+poetry run uvicorn main:app --host 0.0.0.0 --port 5005 --workers 1 --access-log --log-level info
+```
+
+---
+
+## Running Tests
+
+Test dependencies are already declared under `[tool.poetry.group.dev.dependencies]` in `pyproject.toml`.
+
+Run the test suite:
+
+```bash
+poetry run pytest tests
+```
+
+---
+
+## Configuration
+
+The API can be configured with environment variables.
+
+### Discord Logging (optional)
+
+You can enable logging to a Discord channel by setting the `LOGS_WEBHOOK_URL` environment variable.
+
+Example `.env.example`:
+
+```env
+# The Webhook URL of a Discord channel for logs (optional)
+LOGS_WEBHOOK_URL=
+```
+
+Options to set it:
+
+* Create a local `.env` file (loaded automatically by `python-dotenv`).
+* Or pass it as an environment variable in Docker:
 
   ```bash
-  pip install -r requirements.txt
-  ```
-4. Install Playwright (the automation library for browser testing and web scraping used in the project):
-  ```bash
-  python -m playwright install
+  docker run -d -p 5005:5005 -e LOGS_WEBHOOK_URL="https://discord.com/api/webhooks/xxxx" ikabotapi
   ```
 
-### Launch the API
+---
 
-Once the environment is set up, you can proceed to launch the API using the following command:
-  ```bash
-  python run.py
-  ```
+## Quick Start (API check)
 
-The API will be accessible at http://localhost:5000.
+* Open Swagger UI:
 
-### Running Tests
+  * Dev mode → [http://localhost:5000/docs](http://localhost:5000/docs)
+  * Prod mode → [http://localhost:5005/docs](http://localhost:5005/docs)
 
-To ensure the reliability and correctness of the codebase, you can run the provided tests within the project.
+* Or test an endpoint with `curl` (replace `<path>` with one of your endpoints):
 
-1. Install the required test dependencies with the following commands:
-  ```bash
-  pip install pytest
-  pip install pytest-mock
-  ```
-2. Execute the tests by running:
-  ```bash
-  python -m pytest tests
-  ```
-
-NOTE: For enhanced testing convenience, you can configure tests within your IDE. In Visual Studio Code, for instance, follow these steps:
-1. Open the command palette using Ctrl+Shift+P.
-2. Select "Python: Configure Tests."
-3. Choose "pytest" as the testing framework.
-   
-After configuration, you can easily run tests by navigating to the test explorer.
+```bash
+curl -X GET "http://localhost:5000/<path>" -H "accept: application/json"
+```
