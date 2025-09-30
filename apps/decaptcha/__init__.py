@@ -2,8 +2,6 @@ import logging
 import threading
 import time
 
-from flask import Blueprint
-
 from apps.decaptcha.pirates_captcha.ikapiratesdecaptcha import get_captcha_string
 
 threadqueue = []
@@ -19,6 +17,3 @@ def Captcha_detection(image):
         "detect_image done, elapsed: " + str(time.time() - curr) + " result: " + result
     )
     return result
-
-
-blueprint = Blueprint("decaptcha_blueprint", __name__, url_prefix="")

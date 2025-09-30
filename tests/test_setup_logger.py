@@ -3,12 +3,13 @@ import logging
 import pytest
 from pytest_mock import MockerFixture
 
-from apps import setup_logger
+from main import setup_logger
 
 
 def test_setup_logger_with_webhook_url_defined(mocker: MockerFixture):
     mocker.patch("settings.LOGS_WEBHOOK_URL", "https://example.com/webhook")
 
+    # Get the root logger (used by setup_logger)
     logger = logging.getLogger()
     logger.handlers.clear()
 
@@ -20,6 +21,7 @@ def test_setup_logger_with_webhook_url_defined(mocker: MockerFixture):
 def test_setup_logger_with_webhook_url_not_defined(mocker: MockerFixture):
     mocker.patch("settings.LOGS_WEBHOOK_URL", None)
 
+    # Get the root logger (used by setup_logger)
     logger = logging.getLogger()
     logger.handlers.clear()
 
@@ -31,6 +33,7 @@ def test_setup_logger_with_webhook_url_not_defined(mocker: MockerFixture):
 def test_setup_logger_with_empty_webhook_url(mocker: MockerFixture):
     mocker.patch("settings.LOGS_WEBHOOK_URL", "")
 
+    # Get the root logger (used by setup_logger)
     logger = logging.getLogger()
     logger.handlers.clear()
 

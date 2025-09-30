@@ -1,90 +1,56 @@
+import asyncio
 import logging
-import os
-import threading
 import time
+from typing import Annotated
 
-from flask import jsonify, request
+from fastapi import APIRouter, HTTPException, Query
 
 from apps.token import (
-    blueprint,
-    getTokenFromList,
-    lock,
     logger,
     supported_user_agents,
-    threadqueue,
     token_generator,
 )
 
+router = APIRouter()
 
-@blueprint.route("/token", methods=["GET"])
-def token_route():
+
+@router.get("/v1/token")
+def v1_token_route(
+    user_agent: Annotated[
+        str | None, Query(description="User agent string for token generation")
+    ] = None,
+):
+    """
+    Generate a Blackbox token for the specified user agent.
+    NOTE: Synchronous to avoid conflicts with sync Playwright code
+
+    Args:
+        user_agent: The user agent string to generate a token for (optional)
+
+    Returns:
+        str: The generated Blackbox token string
+
+    Raises:
+        HTTPException: 400 if user_agent is invalid or unsupported
+        HTTPException: 500 if token generation fails
+    """
     try:
-        threadqueue.append(threading.current_thread().ident)
-        logger.debug(threading.active_count())
-        while True:
-            with lock:
-                if threading.current_thread().ident == threadqueue[-1]:
-                    curr = time.time()
-                    token = getTokenFromList()
-                    logger.info("Token sent in " + str(time.time() - curr) + " seconds")
-                    threadqueue.remove(threading.current_thread().ident)
-                    break
-                else:
-                    time.sleep(0.01)
-        return token
-    except Exception:
-        logger.exception("Error in token route")
-        return "Error"
-
-
-@blueprint.route("/v1/token", methods=["GET"])
-def v1_token_route():
-    try:
-        if "user_agent" not in request.args:
-            return (
-                jsonify(
-                    {
-                        "status": "error",
-                        "message": "Bad Request: Missing user_agent query parameter",
-                    }
-                ),
-                400,
+        # If user_agent is None or empty, use default (random) user agent
+        if user_agent and user_agent != "" and user_agent not in supported_user_agents:
+            raise HTTPException(
+                status_code=400,
+                detail="Bad Request: Unsupported user_agent query parameter",
             )
 
-        user_agent = request.args.get("user_agent")
+        start_time = time.time()
+        token_string = token_generator.get_token(user_agent)
+        processing_time = time.time() - start_time
 
-        if user_agent == "":
-            return (
-                jsonify(
-                    {
-                        "status": "error",
-                        "message": "Bad Request: Empty user_agent query parameter",
-                    }
-                ),
-                400,
-            )
-
-        if user_agent not in supported_user_agents:
-            return (
-                jsonify(
-                    {
-                        "status": "error",
-                        "message": "Bad Request: Unsupported user_agent query parameter",
-                    }
-                ),
-                400,
-            )
-
-        token = token_generator.get_token(user_agent)
-        return jsonify(token), 200
-    except Exception:
+        return token_string
+    except HTTPException:
+        raise
+    except Exception as e:
         logger.exception("Error in v1_token route")
-        return (
-            jsonify(
-                {
-                    "status": "error",
-                    "message": "An error occurred during token generation",
-                }
-            ),
-            500,
+        raise HTTPException(
+            status_code=500, detail="An error occurred during token generation"
         )

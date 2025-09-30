@@ -1,55 +1,52 @@
-import json
 import os
 from io import BytesIO
 
 import pytest
-
-from apps import create_app
-
-
-@pytest.fixture
-def client():
-    app = create_app({"TESTING": True})
-
-    with app.test_client() as client:
-        yield client
+from fastapi.testclient import TestClient
 
 
-def test_decaptcha_without_data_should_return_status_code_400(client):
-    response = client.post("v1/decaptcha/pirate")
-    assert response.status_code == 400
+def test_decaptcha_without_data_should_return_422(client: TestClient):
+    """Test that missing file upload returns 422 (FastAPI validation error)"""
+    response = client.post("/v1/decaptcha/pirate")
+    assert response.status_code == 422
 
 
-def test_decaptcha_piracy_with_valid_image_should_return_the_right_string(client):
+def test_decaptcha_piracy_with_valid_image_should_return_the_right_string(
+    client: TestClient,
+):
+    """Test pirate captcha solving with valid images returns correct strings"""
     current_directory = os.path.dirname(__file__)
 
     # Case 1
     file_path = os.path.join(current_directory, "img", "pirate1.png")
     with open(file_path, "rb") as f:
-        response = client.post(
-            "v1/decaptcha/pirate",
-            data={"image": (BytesIO(f.read()), "pirate1.png")},
-        )
+        files = {"image": ("pirate1.png", BytesIO(f.read()), "image/png")}
+        response = client.post("/v1/decaptcha/pirate", files=files)
+
     assert response.status_code == 200
-    assert json.loads(response.data) == "QKB24JC"
+    result = response.json()
+    assert result == "QKB24JC"
 
     # Case 2
     file_path = os.path.join(current_directory, "img", "pirate2.png")
     with open(file_path, "rb") as f:
-        response = client.post(
-            "v1/decaptcha/pirate",
-            data={"image": (BytesIO(f.read()), "pirate2.png")},
-        )
+        files = {"image": ("pirate2.png", BytesIO(f.read()), "image/png")}
+        response = client.post("/v1/decaptcha/pirate", files=files)
+
     assert response.status_code == 200
-    assert json.loads(response.data) == "DEVL5KA"
+    result = response.json()
+    assert result == "DEVL5KA"
 
 
-def test_decaptcha_piracy_with_invalid_size_should_return_status_code_500(client):
+def test_decaptcha_piracy_with_invalid_size_should_return_status_code_500(client: TestClient):
+    """Test pirate captcha with invalid image size"""
     current_directory = os.path.dirname(__file__)
     file_path = os.path.join(current_directory, "img", "pirate_invalid_size.png")
+
     with open(file_path, "rb") as f:
-        response = client.post(
-            "v1/decaptcha/pirate",
-            data={"image": (BytesIO(f.read()), "pirate_invalid_size.png")},
-        )
+        files = {"image": ("pirate_invalid_size.png", BytesIO(f.read()), "image/png")}
+        response = client.post("/v1/decaptcha/pirate", files=files)
+
     assert response.status_code == 500
+    response_json = response.json()
+    assert "detail" in response_json
