@@ -1,0 +1,34 @@
+# Virtual environments
+.venv/
+venv/
+__pycache__/
+*.pyc
+*.pyo
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Git
+.git/
+.gitignore
+
+# Environment files
+.env
+.env.local
+
+# Tests
+tests/
+pytest_cache/
+.pytest_cache/
+
+# Documentation (keep README.md for poetry)
+LICENSE
+
+# Local development
+*.log
+.coverage
+htmlcov/
+
