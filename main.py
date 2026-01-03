@@ -21,16 +21,34 @@ def setup_logger():
     This ensures all modules using logging.getLogger() will benefit from the configuration.
     """
     root_logger = logging.getLogger()
+
+    # Clear existing handlers to avoid duplicates
+    root_logger.handlers.clear()
+
+    # Install coloredlogs only on root logger
     coloredlogs.install(level=logging.INFO, logger=root_logger)
+
+    # Disable uvicorn's default loggers to avoid duplicate output
+    logging.getLogger("uvicorn").handlers.clear()
+    logging.getLogger("uvicorn.access").handlers.clear()
+    logging.getLogger("uvicorn.error").handlers.clear()
+
+    # Make uvicorn loggers propagate to root (so they use our handlers)
+    logging.getLogger("uvicorn").propagate = True
+    logging.getLogger("uvicorn.access").propagate = True
+    logging.getLogger("uvicorn.error").propagate = True
 
     if settings.LOGS_WEBHOOK_URL is not None and settings.LOGS_WEBHOOK_URL != "":
         from discord_logging.handler import DiscordHandler
 
         # Define format for logs
-        discord_format = logging.Formatter("%(message)s")
+        discord_format = logging.Formatter("%(name)s - %(message)s")
 
         discord_handler = DiscordHandler("Ikabot API", settings.LOGS_WEBHOOK_URL)
         discord_handler.setFormatter(discord_format)
+
+        # Send INFO and above to Discord
+        discord_handler.setLevel(logging.INFO)
 
         root_logger.addHandler(discord_handler)
 
