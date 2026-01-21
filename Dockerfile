@@ -29,4 +29,4 @@ RUN apt-get update && \
 RUN python -m playwright install --with-deps chromium
 
 # Use xvfb-run to provide virtual display for non-headless Playwright
-CMD ["xvfb-run", "--auto-servernum", "--server-args=-screen 0 1920x1080x24", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "5005", "--workers", "1", "--access-log", "--log-level", "info"]
+CMD xvfb-run --auto-servernum --server-args="-screen 0 1920x1080x24" uvicorn main:app --host 0.0.0.0 --port 5005 --workers 1 --access-log --log-level info

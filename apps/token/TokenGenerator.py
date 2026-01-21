@@ -4,6 +4,8 @@ import os
 from fake_useragent import FakeUserAgent
 from playwright.sync_api import sync_playwright
 
+import settings
+
 
 class TokenGenerator:
     """
@@ -44,10 +46,8 @@ class TokenGenerator:
                 playwright_useragent = user_agent
             else:
                 playwright_useragent = FakeUserAgent().random
-            # Use PLAYWRIGHT_HEADLESS env var (default: False for production with Xvfb)
-            headless = os.getenv("PLAYWRIGHT_HEADLESS", "false").lower() == "true"
             browser = playwright.chromium.launch(
-                headless=headless,
+                headless=settings.PLAYWRIGHT_HEADLESS,
                 args=[
                     '--no-sandbox',
                     '--disable-setuid-sandbox',
