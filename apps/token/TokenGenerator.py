@@ -44,7 +44,15 @@ class TokenGenerator:
                 playwright_useragent = user_agent
             else:
                 playwright_useragent = FakeUserAgent().random
-            browser = playwright.chromium.launch(headless=True)
+            # Use PLAYWRIGHT_HEADLESS env var (default: False for production with Xvfb)
+            headless = os.getenv("PLAYWRIGHT_HEADLESS", "false").lower() == "true"
+            browser = playwright.chromium.launch(
+                headless=headless,
+                args=[
+                    '--no-sandbox',
+                    '--disable-setuid-sandbox',
+                ]
+            )
             context = browser.new_context(user_agent=playwright_useragent)
             page = context.new_page()
             page.goto(self.html_file_path)

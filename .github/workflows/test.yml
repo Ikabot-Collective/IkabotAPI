@@ -45,6 +45,8 @@ jobs:
         poetry run playwright install --with-deps chromium
 
     - name: Run Tests
+      env:
+        PLAYWRIGHT_HEADLESS: "true"
       run: |
         PYTHONPATH=. poetry run pytest tests
         
