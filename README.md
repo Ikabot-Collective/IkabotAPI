@@ -137,6 +137,19 @@ Options to set it:
   docker run -d -p 5005:5005 -e LOGS_WEBHOOK_URL="https://discord.com/api/webhooks/xxxx" ikabotapi
   ```
 
+### Token Cache (optional)
+
+Generated Blackbox tokens are cached per `user_agent` to avoid spawning a new Playwright browser for every request. This prevents crashes under heavy concurrent load.
+
+You can configure the cache duration in seconds with `TOKEN_CACHE_TTL` (default: **60**):
+
+```env
+TOKEN_CACHE_TTL=60
+```
+
+* Set to `0` to disable caching (a new token will be generated for every request).
+* Increase the value if you want fewer Playwright invocations (tokens are valid for the duration of a session).
+
 ---
 
 ## Quick Start (API check)
