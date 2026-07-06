@@ -1,9 +1,9 @@
 import logging
 import os
+import random
 import threading
 import time
 
-from fake_useragent import FakeUserAgent
 from playwright.sync_api import sync_playwright
 
 import settings
@@ -46,8 +46,8 @@ class TokenGenerator:
         Get a token, returning a cached value when available.
 
         When a user_agent is provided, tokens are cached per user_agent with a
-        configurable TTL. Without user_agent (legacy), a random UA is used each
-        time and the result is not cached.
+        configurable TTL. Without user_agent, a random UA from the supported
+        list is picked each time and the result is not cached.
 
         A threading lock serializes Playwright calls to prevent uvloop race
         conditions when multiple requests arrive concurrently.
@@ -70,28 +70,25 @@ class TokenGenerator:
                 if cached and cached[1] > time.time():
                     return cached[0]
 
-            token = self._generate_token(user_agent)
+            effective_ua = user_agent if user_agent else random.choice(self.supported_user_agents)
+            token = self._generate_token(effective_ua)
 
             if user_agent:
                 self._cache[user_agent] = (token, time.time() + self._cache_ttl)
 
             return token
 
-    def _generate_token(self, user_agent: str = None):
+    def _generate_token(self, user_agent: str):
         """
         Launch Playwright to generate a fresh token.
 
         Args:
-        - user_agent (str, optional): The user agent string to use for the browser.
+        - user_agent (str): The user agent string to use for the browser.
 
         Returns:
         - str: The generated token.
         """
         with sync_playwright() as playwright:
-            if user_agent and user_agent in self.supported_user_agents:
-                playwright_useragent = user_agent
-            else:
-                playwright_useragent = FakeUserAgent().random
             browser = playwright.chromium.launch(
                 headless=settings.PLAYWRIGHT_HEADLESS,
                 args=[
@@ -99,7 +96,7 @@ class TokenGenerator:
                     '--disable-setuid-sandbox',
                 ]
             )
-            context = browser.new_context(user_agent=playwright_useragent)
+            context = browser.new_context(user_agent=user_agent)
             page = context.new_page()
             page.goto(self.html_file_path)
             token_element = page.wait_for_selector("body > div")
