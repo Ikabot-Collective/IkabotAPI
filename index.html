@@ -1,159 +1,320 @@
 <!DOCTYPE html>
 <html>
     <head>
-		<title>Manual Blackbox Token Generator</title>
+        <title>Manual Blackbox Token Generator</title>
         <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
         <style>
+            * {
+                box-sizing: border-box;
+            }
+
             body {
+                min-height: 100vh;
+                margin: 0;
+                padding: 32px 16px;
                 display: flex;
                 justify-content: center;
                 align-items: center;
-                flex-direction: column;
-                height: 100vh;
+                font-family: Arial, Helvetica, sans-serif;
+                background: #e8edf0;
+                color: #101213;
+            }
+
+            .page {
+                width: min(840px, 100%);
+            }
+
+            .brand {
+                margin-bottom: 22px;
+            }
+
+            .brand-title {
                 margin: 0;
-                font-family: Arial, sans-serif;
-                background-color: #121212;
-                color: #f5f5f5;
+                font-family: "Arial Black", Impact, Arial, Helvetica, sans-serif;
+                font-size: clamp(46px, 9vw, 86px);
+                line-height: 0.9;
+                color: #050505;
             }
-            h1 {
-                font-size: 22px;
-                font-weight: bold;
-                color: #f5f5f5;
-                margin-bottom: 15px;
-                text-align: center;
+
+            .tool-panel {
+                padding: 28px;
+                background: #f7fafb;
+                border: 1px solid #d2dce0;
+                border-radius: 8px;
+                box-shadow: 0 18px 48px rgba(18, 24, 27, 0.14);
+                color: #101213;
             }
+
+            h2 {
+                margin: 0 0 10px;
+                color: #050505;
+                font-family: "Arial Black", Impact, Arial, Helvetica, sans-serif;
+                font-size: 30px;
+                line-height: 1.1;
+            }
+
+            .lead {
+                margin: 0 0 22px;
+                color: #445054;
+                font-size: 15px;
+                line-height: 1.55;
+            }
+
+            .payload-header {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                gap: 12px;
+                margin-bottom: 8px;
+                color: #20282a;
+                font-size: 13px;
+                font-weight: 700;
+            }
+
+            .payload-controls {
+                display: flex;
+                align-items: center;
+                gap: 12px;
+                flex-wrap: wrap;
+                justify-content: flex-end;
+            }
+
+            #statusLabel {
+                color: #536064;
+                font-weight: 700;
+            }
+
+            #statusLabel.ready {
+                color: #176b3a;
+            }
+
+            #statusLabel.error {
+                color: #a5271e;
+            }
+
             .code-block {
-                padding: 12px;
-                font-family: monospace;
-                background-color: #1e1e1e;
-                color: #00ff00;
-                border-radius: 8px;
-                cursor: pointer;
-                text-align: left;
+                min-height: 112px;
+                max-height: 200px;
+                margin: 0;
+                padding: 14px;
+                overflow: auto;
                 white-space: pre-wrap;
-                max-width: 80%;
-                word-wrap: break-word;
-                border: 2px solid #00ff00;
-                margin-bottom: 15px;
-            }
-            .code-block:hover {
-                background-color: #292929;
-            }
-            #copiedMessage {
-                font-size: 28px;
-                font-weight: bold;
-                color: #f5f5f5;
-                position: absolute;
-                top: 20%;
-                display: none;
-                text-align: center;
-                background: rgba(0, 0, 0, 0.8);
-                padding: 8px 16px;
+                overflow-wrap: anywhere;
+                font-family: Consolas, "Courier New", monospace;
+                font-size: 13px;
+                line-height: 1.5;
+                color: #1c2427;
+                background: #e4eaed;
+                border: 1px solid #c8d2d7;
                 border-radius: 8px;
-                z-index: 1000;
             }
-            @keyframes fadeOut {
-                0% { opacity: 1; }
-                100% { opacity: 0; }
-            }
-            .accordion {
-                background-color: #1e1e1e;
-                color: #f5f5f5;
-                border: 2px solid #00ff00;
+
+            .copy-button {
+                min-height: 38px;
+                padding: 0 16px;
+                border: 1px solid #050505;
                 border-radius: 8px;
-                padding: 10px 20px;
-                text-align: left;
-                cursor: pointer;
-                width: 80%;
-                margin-top: 10px;
-                transition: background-color 0.3s ease;
-            }
-            .accordion:hover {
-                background-color: #292929;
-            }
-            .accordion.active {
-                border-bottom-left-radius: 0;
-                border-bottom-right-radius: 0;
-            }
-            .explanation {
-                margin-top: 0;
-                display: none;
-                background-color: #1e1e1e;
-                color: #f5f5f5;
-                padding: 12px;
-                border-radius: 0 0 8px 8px;
-                border: 2px solid #00ff00;
-                border-top: none;
+                background: #050505;
+                color: #f3f8f8;
                 font-size: 14px;
+                font-weight: 800;
+                cursor: pointer;
+            }
+
+            .copy-button:hover:not(:disabled) {
+                background: #222729;
+            }
+
+            .copy-button:disabled {
+                background: #9ca8ab;
+                cursor: not-allowed;
+            }
+
+            .accordion {
+                width: 100%;
+                margin-top: 18px;
+                padding: 10px 0;
+                border: 0;
+                background: transparent;
+                color: #101213;
                 text-align: left;
-                width: 80%;
+                font-size: 14px;
+                font-weight: 800;
+                cursor: pointer;
             }
+
+            .accordion::after {
+                content: "+";
+                float: right;
+                font-weight: 900;
+            }
+
+            .accordion.active::after {
+                content: "-";
+            }
+
+            .explanation {
+                display: none;
+                padding-top: 4px;
+                color: #445054;
+                font-size: 14px;
+                line-height: 1.55;
+            }
+
             .explanation ul {
-                margin: 5px 0;
+                margin: 10px 0 0;
+                padding-left: 20px;
             }
+
             .explanation li {
-                margin-bottom: 3px;
+                margin-bottom: 4px;
             }
+
             a {
-                color: #00ff00;
-                text-decoration: underline;
+                color: #101213;
+                font-weight: 700;
+            }
+
+            @media (max-width: 640px) {
+                body {
+                    align-items: flex-start;
+                    padding: 20px 12px;
+                }
+
+                .brand {
+                    margin-bottom: 20px;
+                }
+
+                .brand-title {
+                    font-size: 44px;
+                }
+
+                .tool-panel {
+                    padding: 22px;
+                }
+
+                h2 {
+                    font-size: 25px;
+                }
+
+                .payload-header {
+                    flex-direction: column;
+                    align-items: stretch;
+                    gap: 4px;
+                }
+
+                .payload-controls {
+                    justify-content: space-between;
+                }
+
+                .copy-button {
+                    width: auto;
+                }
             }
         </style>
     </head>
     <body>
-        <h1>Click the code block below to copy the blackbox token</h1>
-        <div class="code-block" id="tokenBlock"></div>
-        <div id="copiedMessage">Copied!</div>
-        <div class="accordion" onclick="toggleAccordion()">What is this?</div>
-        <div class="explanation" id="explanation">
-            The above code is a browser fingerprinting token (referred to as a "blackbox" token) that was just generated by your browser.
-            The purpose of the token is to ensure that players are using an actual browser when playing.
-            The code is generated using an obfuscated JavaScript file (hosted at
-            <a href="https://gameforge.com/tra/game1.js" target="_blank">https://gameforge.com/tra/game1.js</a>).
-            <br>
-            <br>
-            This JavaScript code consolidates information such as:
-            <ul>
-                <li>The current date and time</li>
-                <li>Browser's version and user agent</li>
-                <li>Host OS type and version</li>
-                <li>Fonts available for rendering</li>
-                <li>Display device and graphics processor</li>
-                <li>Browser window size</li>
-                <li>And much more...</li>
-            </ul>
-            <br>
-            All this is combined into a single blackbox token that proves it came from a legitimate browser.
-        </div>
+        <main class="page">
+            <header class="brand">
+                <h1 class="brand-title">IKABOT</h1>
+            </header>
+
+            <section class="tool-panel">
+                <h2>Blackbox payload generator</h2>
+                <p class="lead">Copy this JSON payload into Ikabot. It includes the generated blackbox token and the browser user-agent used to create it.</p>
+
+                <div class="payload-header">
+                    <span>Payload</span>
+                    <div class="payload-controls">
+                        <span id="statusLabel">Generating...</span>
+                        <button class="copy-button" id="copyButton" type="button" disabled>Copy payload</button>
+                    </div>
+                </div>
+                <pre class="code-block" id="tokenBlock">Generating payload...</pre>
+
+                <button class="accordion" type="button" onclick="toggleAccordion()">What does this page do?</button>
+                <div class="explanation" id="explanation">
+                    This page generates a blackbox payload from your current browser. It includes the blackbox token and your browser user-agent, so Ikabot can use matching values during login.
+                    This page does not ask for your Gameforge password.
+                    <br>
+                    <br>
+                    The token is generated by Gameforge's browser script hosted at
+                    <a href="https://gameforge.com/tra/game1.js" target="_blank">https://gameforge.com/tra/game1.js</a>.
+                    <br>
+                    <br>
+                    The token can include signals such as:
+                    <ul>
+                        <li>The current date and time</li>
+                        <li>The browser version and user-agent</li>
+                        <li>The host operating system</li>
+                        <li>Fonts available for rendering</li>
+                        <li>Display device and graphics information</li>
+                        <li>Browser window size</li>
+                    </ul>
+                </div>
+            </section>
+        </main>
+
         <script src="https://gameforge.com/tra/game1.js"></script>
         <script>
-            function handleToken(token) {
-                const tokenBlock = document.getElementById('tokenBlock');
-                const copiedMessage = document.getElementById('copiedMessage');
-                tokenBlock.textContent = token;
-                tokenBlock.onclick = function() {
-                    navigator.clipboard.writeText(token).then(() => {
-                        copiedMessage.style.display = 'block';
-                        copiedMessage.style.animation = 'fadeOut 1.5s forwards';
-                        setTimeout(() => {
-                            copiedMessage.style.display = 'none';
-                        }, 1500);
-                    }).catch(err => {
-                        console.error('Failed to copy token:', err);
-                    });
-                };
+            let currentPayload = "";
+
+            const tokenBlock = document.getElementById("tokenBlock");
+            const copyButton = document.getElementById("copyButton");
+            const statusLabel = document.getElementById("statusLabel");
+
+            function setStatus(message, state) {
+                statusLabel.textContent = message;
+                statusLabel.className = state || "";
             }
-            game1(handleToken);
-            function toggleAccordion() {
-                const explanation = document.getElementById('explanation');
-                const accordion = document.querySelector('.accordion');
-                if (explanation.style.display === 'none' || explanation.style.display === '') {
-                    explanation.style.display = 'block';
-                    accordion.classList.add('active');
-                } else {
-                    explanation.style.display = 'none';
-                    accordion.classList.remove('active');
+
+            function copyPayload() {
+                if (!currentPayload) {
+                    return;
                 }
+
+                navigator.clipboard.writeText(currentPayload).then(() => {
+                    copyButton.textContent = "✓ Copied";
+                    setTimeout(() => {
+                        copyButton.textContent = "Copy payload";
+                    }, 1800);
+                }).catch(err => {
+                    copyButton.textContent = "Copy failed";
+                    setTimeout(() => {
+                        copyButton.textContent = "Copy payload";
+                    }, 1800);
+                    console.error("Failed to copy payload:", err);
+                });
+            }
+
+            function handleToken(token) {
+                currentPayload = JSON.stringify({
+                    blackbox: token,
+                    user_agent: navigator.userAgent
+                });
+
+                tokenBlock.textContent = currentPayload;
+                copyButton.disabled = false;
+                setStatus("Ready", "ready");
+            }
+
+            copyButton.onclick = copyPayload;
+
+            try {
+                game1(handleToken);
+            } catch (err) {
+                tokenBlock.textContent = "The blackbox payload could not be generated. Refresh the page and try again.";
+                setStatus("Generation failed", "error");
+                console.error("Failed to generate blackbox payload:", err);
+            }
+
+            function toggleAccordion() {
+                const explanation = document.getElementById("explanation");
+                const accordion = document.querySelector(".accordion");
+                const isOpen = explanation.style.display === "block";
+                explanation.style.display = isOpen ? "none" : "block";
+                accordion.classList.toggle("active", !isOpen);
             }
         </script>
     </body>
