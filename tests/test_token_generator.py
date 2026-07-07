@@ -51,3 +51,47 @@ def test_get_token_returns_valid_token_with_specific_user_agent(token_generator)
 def test_get_token_returns_valid_token_with_empty_user_agent(token_generator):
     token = token_generator.get_token(user_agent="")
     verify_token_format(token)
+
+
+def test_get_token_passes_locale_and_timezone_to_generator(token_generator):
+    captured = {}
+
+    def fake_generate_token(user_agent, locale, timezone_id):
+        captured["user_agent"] = user_agent
+        captured["locale"] = locale
+        captured["timezone_id"] = timezone_id
+        return "ValidToken123"
+
+    token_generator._generate_token = fake_generate_token
+
+    token = token_generator.get_token(
+        user_agent="Test User Agent",
+        locale="es-ES",
+        timezone_id="Europe/Madrid",
+    )
+
+    assert token == "ValidToken123"
+    assert captured == {
+        "user_agent": "Test User Agent",
+        "locale": "es-ES",
+        "timezone_id": "Europe/Madrid",
+    }
+
+
+def test_get_token_uses_default_locale_and_timezone(token_generator):
+    captured = {}
+
+    def fake_generate_token(user_agent, locale, timezone_id):
+        captured["locale"] = locale
+        captured["timezone_id"] = timezone_id
+        return "ValidToken123"
+
+    token_generator._generate_token = fake_generate_token
+
+    token = token_generator.get_token(user_agent="Test User Agent")
+
+    assert token == "ValidToken123"
+    assert captured == {
+        "locale": "en-GB",
+        "timezone_id": "Europe/London",
+    }
