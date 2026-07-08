@@ -1,4 +1,5 @@
 import logging
+import re
 import time
 from typing import Annotated
 
@@ -12,11 +13,38 @@ from apps.token import (
 
 router = APIRouter()
 
+LOCALE_PATTERN = re.compile(r"^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})*$")
+TIMEZONE_PATTERN = re.compile(r"^(UTC|[A-Za-z_]+(/[A-Za-z0-9_+\-]+)+)$")
+
+
+def _normalize_context_param(
+    value: str | None,
+    default: str,
+    pattern: re.Pattern,
+    param_name: str,
+) -> str:
+    if value is None or value == "":
+        return default
+
+    if not pattern.fullmatch(value):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Bad Request: Unsupported {param_name} query parameter",
+        )
+
+    return value
+
 
 @router.get("/v1/token")
 def v1_token_route(
     user_agent: Annotated[
         str | None, Query(description="User agent string for token generation")
+    ] = None,
+    locale: Annotated[
+        str | None, Query(description="Browser locale for token generation")
+    ] = None,
+    timezone_id: Annotated[
+        str | None, Query(description="Browser timezone ID for token generation")
     ] = None,
 ):
     """
@@ -25,6 +53,8 @@ def v1_token_route(
 
     Args:
         user_agent: The user agent string to generate a token for (optional)
+        locale: The browser locale to generate a token with (optional)
+        timezone_id: The browser timezone ID to generate a token with (optional)
 
     Returns:
         str: The generated Blackbox token string
@@ -41,8 +71,25 @@ def v1_token_route(
                 detail="Bad Request: Unsupported user_agent query parameter",
             )
 
+        effective_locale = _normalize_context_param(
+            locale,
+            token_generator.default_locale,
+            LOCALE_PATTERN,
+            "locale",
+        )
+        effective_timezone_id = _normalize_context_param(
+            timezone_id,
+            token_generator.default_timezone_id,
+            TIMEZONE_PATTERN,
+            "timezone_id",
+        )
+
         start_time = time.time()
-        token_string = token_generator.get_token(user_agent)
+        token_string = token_generator.get_token(
+            user_agent,
+            effective_locale,
+            effective_timezone_id,
+        )
         processing_time = time.time() - start_time
 
         return token_string

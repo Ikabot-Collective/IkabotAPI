@@ -140,6 +140,8 @@ Options to set it:
 ### Token Generation
 
 Blackbox tokens are generated fresh for every request. Playwright calls are serialized with a threading lock.
+The `/v1/token` route accepts optional `user_agent`, `locale`, and `timezone_id` query parameters.
+When omitted, `locale` defaults to `en-GB` and `timezone_id` defaults to `Europe/London`.
 
 ---
 

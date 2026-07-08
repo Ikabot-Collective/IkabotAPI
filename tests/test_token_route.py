@@ -1,6 +1,7 @@
 import pytest
 from fastapi.testclient import TestClient
 
+import apps.token.routes as token_routes
 from tests.token_validator import verify_token_format
 
 
@@ -57,3 +58,77 @@ def test_v1_token_route_with_supported_user_agent_should_return_200(client: Test
 
     # Verify token format using existing validator
     verify_token_format(token_string)
+
+
+def test_v1_token_route_passes_locale_and_timezone_to_token_generator(
+    client: TestClient,
+    monkeypatch,
+):
+    """Test that supported browser context params are passed to the generator"""
+    captured = {}
+
+    class FakeTokenGenerator:
+        default_locale = "en-GB"
+        default_timezone_id = "Europe/London"
+
+        def get_token(self, user_agent=None, locale=None, timezone_id=None):
+            captured["user_agent"] = user_agent
+            captured["locale"] = locale
+            captured["timezone_id"] = timezone_id
+            return "ValidToken123"
+
+    user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.3"
+    monkeypatch.setattr(token_routes, "token_generator", FakeTokenGenerator())
+
+    response = client.get(
+        "/v1/token",
+        params={
+            "user_agent": user_agent,
+            "locale": "es-ES",
+            "timezone_id": "Europe/Madrid",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json() == "ValidToken123"
+    assert captured == {
+        "user_agent": user_agent,
+        "locale": "es-ES",
+        "timezone_id": "Europe/Madrid",
+    }
+
+
+def test_v1_token_route_rejects_invalid_locale(client: TestClient, monkeypatch):
+    """Test that clearly invalid locale values return 400"""
+
+    class FakeTokenGenerator:
+        default_locale = "en-GB"
+        default_timezone_id = "Europe/London"
+
+        def get_token(self, user_agent=None, locale=None, timezone_id=None):
+            raise AssertionError("token generator should not be called")
+
+    monkeypatch.setattr(token_routes, "token_generator", FakeTokenGenerator())
+
+    response = client.get("/v1/token?locale=not a locale")
+
+    assert response.status_code == 400
+    assert "Unsupported locale" in response.json()["detail"]
+
+
+def test_v1_token_route_rejects_invalid_timezone(client: TestClient, monkeypatch):
+    """Test that clearly invalid timezone values return 400"""
+
+    class FakeTokenGenerator:
+        default_locale = "en-GB"
+        default_timezone_id = "Europe/London"
+
+        def get_token(self, user_agent=None, locale=None, timezone_id=None):
+            raise AssertionError("token generator should not be called")
+
+    monkeypatch.setattr(token_routes, "token_generator", FakeTokenGenerator())
+
+    response = client.get("/v1/token?timezone_id=not a timezone")
+
+    assert response.status_code == 400
+    assert "Unsupported timezone_id" in response.json()["detail"]
