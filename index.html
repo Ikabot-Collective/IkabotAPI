@@ -222,7 +222,7 @@
 
             <section class="tool-panel">
                 <h2>Blackbox payload generator</h2>
-                <p class="lead">Copy this JSON payload into Ikabot. It includes the generated blackbox token and the browser user-agent used to create it.</p>
+                <p class="lead">Copy this JSON payload into Ikabot. It includes the generated blackbox token and browser context.</p>
 
                 <div class="payload-header">
                     <span>Payload</span>
@@ -235,7 +235,7 @@
 
                 <button class="accordion" type="button" onclick="toggleAccordion()">What does this page do?</button>
                 <div class="explanation" id="explanation">
-                    This page generates a blackbox payload from your current browser. It includes the blackbox token and your browser user-agent, so Ikabot can use matching values during login.
+                    This page generates a blackbox payload from your current browser. It includes the blackbox token, user-agent, locale, and timezone reported by this browser.
                     This page does not ask for your Gameforge password.
                     <br>
                     <br>
@@ -291,7 +291,9 @@
             function handleToken(token) {
                 currentPayload = JSON.stringify({
                     blackbox: token,
-                    user_agent: navigator.userAgent
+                    user_agent: navigator.userAgent,
+                    locale: navigator.language,
+                    timezone_id: Intl.DateTimeFormat().resolvedOptions().timeZone
                 });
 
                 tokenBlock.textContent = currentPayload;
