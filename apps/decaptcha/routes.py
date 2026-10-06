@@ -1,6 +1,7 @@
 import logging
 import threading
 import time
+from io import BytesIO
 from typing import Annotated
 
 from fastapi import APIRouter, File, HTTPException, UploadFile
@@ -9,6 +10,16 @@ from apps.decaptcha import Captcha_detection, lock, logger, threadqueue
 from apps.decaptcha.lobby_captcha.image import break_interactive_captcha
 
 router = APIRouter()
+
+# Pirate captchas are small images. Anything else (e.g. the full HTML page that
+# old clients used to send) is rejected before it can take a place in the queue.
+PIRATE_MAX_BYTES = 50_000
+IMAGE_MAGIC_BYTES = (
+    b"\x89PNG\r\n\x1a\n",  # PNG
+    b"\xff\xd8\xff",  # JPEG
+    b"GIF87a",
+    b"GIF89a",
+)
 
 
 @router.post("/v1/decaptcha/pirate")
@@ -27,12 +38,25 @@ def decaptcha_pirate(
 
     Raises:
         HTTPException: 400 if no image provided
+        HTTPException: 413 if the upload is larger than 50 KB
+        HTTPException: 415 if the upload is not a PNG/JPEG/GIF image
         HTTPException: 500 if captcha resolution fails
     """
     try:
         if not image:
             raise HTTPException(
                 status_code=400, detail="Bad Request: No image provided"
+            )
+
+        # Validate before queueing so invalid uploads fail fast and never wait
+        # for (or hold) the lock. Reads at most one byte over the limit.
+        data = image.file.read(PIRATE_MAX_BYTES + 1)
+        if len(data) > PIRATE_MAX_BYTES:
+            raise HTTPException(status_code=413, detail="Image too large (max 50 KB)")
+        if not data.startswith(IMAGE_MAGIC_BYTES):
+            raise HTTPException(
+                status_code=415,
+                detail="Unsupported file type: send only the captcha image",
             )
 
         start_time = time.time()
@@ -43,7 +67,7 @@ def decaptcha_pirate(
         while True:
             with lock:
                 if threading.current_thread().ident == threadqueue[-1]:
-                    captcha_result = Captcha_detection(image.file)
+                    captcha_result = Captcha_detection(BytesIO(data))
                     threadqueue.remove(threading.current_thread().ident)
                     break
                 else:
