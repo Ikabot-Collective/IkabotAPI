@@ -38,8 +38,8 @@ def test_decaptcha_piracy_with_valid_image_should_return_the_right_string(
     assert result == "DEVL5KA"
 
 
-def test_decaptcha_piracy_with_invalid_size_should_return_status_code_500(client: TestClient):
-    """Test pirate captcha with invalid image size"""
+def test_decaptcha_piracy_with_invalid_size_should_return_status_code_413(client: TestClient):
+    """Oversized uploads are rejected before reaching the queue"""
     current_directory = os.path.dirname(__file__)
     file_path = os.path.join(current_directory, "img", "pirate_invalid_size.png")
 
@@ -47,6 +47,24 @@ def test_decaptcha_piracy_with_invalid_size_should_return_status_code_500(client
         files = {"image": ("pirate_invalid_size.png", BytesIO(f.read()), "image/png")}
         response = client.post("/v1/decaptcha/pirate", files=files)
 
-    assert response.status_code == 500
-    response_json = response.json()
-    assert "detail" in response_json
+    assert response.status_code == 413
+    assert "detail" in response.json()
+
+
+def test_decaptcha_piracy_with_html_should_return_status_code_415(client: TestClient):
+    """A small non-image upload (e.g. HTML) is rejected before reaching the queue"""
+    html = b"<html><body>not a captcha</body></html>"
+    files = {"image": ("page.html", BytesIO(html), "text/html")}
+    response = client.post("/v1/decaptcha/pirate", files=files)
+
+    assert response.status_code == 415
+    assert "detail" in response.json()
+
+
+def test_decaptcha_piracy_with_large_html_should_return_status_code_413(client: TestClient):
+    """A large HTML upload (old client behaviour) fails fast with 413"""
+    html = b"<html>" + b"x" * 60_000 + b"</html>"
+    files = {"image": ("page.html", BytesIO(html), "text/html")}
+    response = client.post("/v1/decaptcha/pirate", files=files)
+
+    assert response.status_code == 413
