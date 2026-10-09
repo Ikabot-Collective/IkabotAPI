@@ -6,7 +6,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, File, HTTPException, UploadFile
 
-from apps.decaptcha import Captcha_detection, lock, logger, threadqueue
+from apps.decaptcha import Captcha_detection, lock, logger
 from apps.decaptcha.lobby_captcha.image import break_interactive_captcha
 
 router = APIRouter()
@@ -61,17 +61,10 @@ def decaptcha_pirate(
 
         start_time = time.time()
 
-        threadqueue.append(threading.current_thread().ident)
         logger.info(f"Active threads: {threading.active_count()}")
 
-        while True:
-            with lock:
-                if threading.current_thread().ident == threadqueue[-1]:
-                    captcha_result = Captcha_detection(BytesIO(data))
-                    threadqueue.remove(threading.current_thread().ident)
-                    break
-                else:
-                    time.sleep(0.01)
+        with lock:
+            captcha_result = Captcha_detection(BytesIO(data))
 
         processing_time = time.time() - start_time
 
