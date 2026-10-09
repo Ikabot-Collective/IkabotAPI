@@ -1,4 +1,5 @@
 import os
+from concurrent.futures import ThreadPoolExecutor
 from io import BytesIO
 
 import pytest
@@ -68,3 +69,20 @@ def test_decaptcha_piracy_with_large_html_should_return_status_code_413(client: 
     response = client.post("/v1/decaptcha/pirate", files=files)
 
     assert response.status_code == 413
+
+
+def test_decaptcha_piracy_concurrent_requests_all_succeed(client: TestClient):
+    """Concurrent requests are all served (no request is left waiting forever)"""
+    current_directory = os.path.dirname(__file__)
+    with open(os.path.join(current_directory, "img", "pirate1.png"), "rb") as f:
+        data = f.read()
+
+    def solve(_):
+        files = {"image": ("pirate1.png", BytesIO(data), "image/png")}
+        return client.post("/v1/decaptcha/pirate", files=files)
+
+    with ThreadPoolExecutor(max_workers=16) as pool:
+        responses = list(pool.map(solve, range(48)))
+
+    assert all(r.status_code == 200 for r in responses)
+    assert all(r.json() == "QKB24JC" for r in responses)
