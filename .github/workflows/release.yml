@@ -1,0 +1,193 @@
+name: Publish Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      milestone:
+        description: 'Milestone title / version to release (ex: 2.1.0, without v)'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-release
+  cancel-in-progress: false
+
+env:
+  GH_TOKEN: ${{ github.token }}
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  update_version_number:
+    name: Update Version Number
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      issues: read
+    outputs:
+      commit_sha: ${{ steps.commit.outputs.sha }}
+      milestone_number: ${{ steps.milestone.outputs.number }}
+    steps:
+      - name: Validate release input
+        env:
+          VERSION: ${{ inputs.milestone }}
+        run: |
+          if [[ "$GITHUB_REF" != "refs/heads/main" ]]; then
+            echo "::error::Releases must be run from main."
+            exit 1
+          fi
+          if [[ ! "$VERSION" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+            echo "::error::Use a stable version such as 2.1.0, without the v prefix."
+            exit 1
+          fi
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}
+          fetch-depth: 0
+
+      - name: Find milestone and check tag
+        id: milestone
+        env:
+          VERSION: ${{ inputs.milestone }}
+        run: |
+          milestones=$(gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/milestones?state=open&per_page=100")
+          number=$(jq -er --arg title "$VERSION" \
+            '[.[][] | select(.title == $title)] | if length == 1 then .[0].number else error("Expected one open milestone matching the version") end' \
+            <<< "$milestones")
+          if git show-ref --verify --quiet "refs/tags/v$VERSION"; then
+            echo "::error::The release tag already exists."
+            exit 1
+          fi
+          echo "number=$number" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Replace version values
+        env:
+          VERSION: ${{ inputs.milestone }}
+        run: python .github/scripts/bump_version.py "$VERSION"
+
+      - name: Commit and push version update
+        id: commit
+        env:
+          VERSION: ${{ inputs.milestone }}
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          git add apps/__init__.py pyproject.toml
+          if ! git diff --cached --quiet; then
+            git commit -m "Bump Ikabot API version $VERSION"
+          fi
+          git push origin HEAD:main
+          # github.sha still refers to the commit that started this workflow.
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+  test:
+    name: Test Release Commit
+    needs: update_version_number
+    uses: ./.github/workflows/test.yml
+    with:
+      ref: ${{ needs.update_version_number.outputs.commit_sha }}
+
+  build_release_notes:
+    name: Generate Release Notes
+    needs: update_version_number
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      issues: read
+      pull-requests: read
+    steps:
+      - name: Get Contributors
+        id: get-contribs
+        uses: Keboo/GitHubHelper@master
+        with:
+          milestone: ${{ inputs.milestone }}
+          repository: ${{ github.event.repository.name }}
+          repository-owner: ${{ github.repository_owner }}
+          token: ${{ github.token }}
+
+      - name: Generate Release Notes
+        env:
+          VERSION: ${{ inputs.milestone }}
+          RELEASE_SHA: ${{ needs.update_version_number.outputs.commit_sha }}
+          CONTRIBUTORS: ${{ steps.get-contribs.outputs.contributors }}
+        run: |
+          gh api --method POST "repos/$GITHUB_REPOSITORY/releases/generate-notes" \
+            -f tag_name="v$VERSION" -f target_commitish="$RELEASE_SHA" \
+            -f configuration_file_path='.github/release.yml' \
+            --jq '.body' > ReleaseNotes.md
+          printf '\n%s\n' "$CONTRIBUTORS" >> ReleaseNotes.md
+          image="ghcr.io/${GITHUB_REPOSITORY,,}"
+          printf '\n## Docker image\n\n```sh\ndocker pull %s:v%s\n```\n' "$image" "$VERSION" >> ReleaseNotes.md
+
+      - name: Upload Release Notes
+        uses: actions/upload-artifact@v4
+        with:
+          name: ReleaseNotes
+          path: ReleaseNotes.md
+
+  publish_docker:
+    name: Publish Docker Image
+    needs: [update_version_number, test, build_release_notes]
+    uses: ./.github/workflows/publish_docker.yml
+    with:
+      tag_name: v${{ inputs.milestone }}
+      ref: ${{ needs.update_version_number.outputs.commit_sha }}
+    permissions:
+      contents: read
+      packages: write
+
+  create_release:
+    name: Create Draft Release
+    needs: [update_version_number, publish_docker]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download Release Notes
+        uses: actions/download-artifact@v4
+        with:
+          name: ReleaseNotes
+
+      - name: Create Release
+        env:
+          VERSION: ${{ inputs.milestone }}
+          RELEASE_SHA: ${{ needs.update_version_number.outputs.commit_sha }}
+        run: |
+          gh release create "v$VERSION" --repo "$GITHUB_REPOSITORY" \
+            --target "$RELEASE_SHA" --draft --title "$VERSION" --notes-file ReleaseNotes.md
+
+  publish_release:
+    name: Publish Release
+    needs: create_release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Publish Release
+        env:
+          VERSION: ${{ inputs.milestone }}
+        run: gh release edit "v$VERSION" --repo "$GITHUB_REPOSITORY" --draft=false --latest
+
+  close_milestone:
+    name: Close Milestone
+    needs: [update_version_number, publish_release]
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - name: Close Milestone
+        env:
+          MILESTONE_NUMBER: ${{ needs.update_version_number.outputs.milestone_number }}
+        run: |
+          gh api --method PATCH "repos/$GITHUB_REPOSITORY/milestones/$MILESTONE_NUMBER" \
+            -f state=closed --silent
