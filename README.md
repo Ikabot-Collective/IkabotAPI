@@ -151,11 +151,15 @@ Releases follow the same milestone-based process as the Ikabot client:
 2. Merge the changes to `main`.
 3. Open **Actions → Publish Release → Run workflow**, select `main`, and enter the milestone title.
 
-The workflow updates `apps/__init__.py` and the Poetry version in `pyproject.toml`, commits the change as `github-actions[bot]`, and pushes it to `main`. The application uses `apps.__version__` for its OpenAPI schema, health response, and home page. Tests, release notes, the release tag, and the Docker build all use the resulting commit SHA, including the version bump.
+Pull requests targeting `main` and pushes to `main` run the Python tests and a **Docker Build & Smoke Test** check in parallel. The Docker check builds without publishing, starts the container with its default command, and checks that `/health` reports a healthy status and the expected application version. Making these checks required in branch protection also requires an appropriate release bot bypass or a release flow through pull requests: the current direct version push cannot satisfy required GitHub checks on a commit that has not yet been pushed.
+
+The release workflow updates `apps/__init__.py` and the Poetry version in `pyproject.toml` and creates a local commit as `github-actions[bot]`. It runs the Python tests and the same Docker build and smoke test against that commit, with the new version already included. Only after these checks succeed and the validated image is saved as a workflow artifact does it push the version commit to `main`. A test or build failure therefore leaves `main` unchanged. If `main` advances in the meantime, the push fails instead of silently including untested changes; start a new release run from the updated `main` in that case.
+
+The application uses `apps.__version__` for its OpenAPI schema, health response, and home page. Tests, release notes, the release tag, and the Docker image all refer to the resulting commit SHA, including the version bump.
 
 Release notes use GitHub's generated changelog and the same `Keboo/GitHubHelper@master` contributor section as Ikabot. Contributors are selected by milestone; the generated changelog describes changes since the previous release, with categories configured in `.github/release.yml`.
 
-After the tests pass, the workflow builds and publishes the Docker image to GitHub Container Registry (GHCR):
+After the version commit is pushed and release notes are generated, the workflow publishes the validated Docker image to GitHub Container Registry (GHCR). It downloads the saved image and verifies the archive checksum, commit SHA, and version before publishing, without rebuilding:
 
 ```text
 ghcr.io/ikabot-collective/ikabotapi:v<VERSION>
@@ -166,7 +170,7 @@ It then creates the GitHub release `v<VERSION>` as a draft, publishes it automat
 
 The workflow uses the built-in `GITHUB_TOKEN`; no Docker Hub or PyPI credentials are needed. Repository/organization policies must allow GitHub Actions to push the version commit to `main` and publish packages. If `main` is protected against direct bot pushes, that policy must be addressed before running a release. For anonymous image downloads, set the GHCR package visibility to public after its first publication.
 
-Only one release runs at a time. Invalid version titles, version downgrades, missing open milestones, and existing release tags are rejected. If a job fails, use **Re-run failed jobs** on the original run to keep using the same version commit. A failure can leave the version commit on `main`, an uploaded image, or a draft release; the milestone closes only after the release is published.
+Only one release runs at a time. Invalid version titles, version downgrades, missing open milestones, and existing release tags are rejected. If a publication job fails, use **Re-run failed jobs** on the original run to keep using the same validated version commit and image; the image artifact is retained for seven days. A failure after validation can leave the version commit on `main`, an uploaded image, or a draft release; the milestone closes only after the release is published.
 
 ---
 

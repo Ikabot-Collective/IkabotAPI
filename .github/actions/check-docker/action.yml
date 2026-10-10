@@ -1,0 +1,72 @@
+name: Check Docker image
+description: Build without publishing and check the default container startup and health response.
+
+inputs:
+  ref:
+    description: Commit included in the image
+    required: true
+  version:
+    description: Expected release version, or empty to use the checked-out application version
+    default: ''
+
+runs:
+  using: composite
+  steps:
+    - name: Read image version
+      id: version
+      shell: bash
+      env:
+        EXPECTED_VERSION: ${{ inputs.version }}
+      run: |
+        version=$(python3 -c 'from apps import __version__; print(__version__)')
+        if [[ -n "$EXPECTED_VERSION" && "$version" != "$EXPECTED_VERSION" ]]; then
+          echo "::error::The application version does not match the requested release."
+          exit 1
+        fi
+        echo "value=$version" >> "$GITHUB_OUTPUT"
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v4
+
+    - name: Build image without publishing
+      uses: docker/build-push-action@v7
+      with:
+        # Path context includes the local version bump, unlike the default Git context.
+        context: .
+        platforms: linux/amd64
+        load: true
+        push: false
+        tags: ikabot-api:check
+        labels: |
+          org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+          org.opencontainers.image.version=v${{ steps.version.outputs.value }}
+          org.opencontainers.image.revision=${{ inputs.ref }}
+          org.opencontainers.image.licenses=MIT
+
+    - name: Check container startup and version
+      shell: bash
+      env:
+        EXPECTED_VERSION: ${{ steps.version.outputs.value }}
+      run: |
+        container=$(docker run --detach --publish 127.0.0.1::5005 \
+          --env LOGS_WEBHOOK_URL= ikabot-api:check)
+        cleanup() {
+          docker logs "$container" || true
+          docker rm --force "$container" > /dev/null || true
+        }
+        trap cleanup EXIT
+        address=$(docker port "$container" 5005/tcp)
+        for attempt in $(seq 1 60); do
+          if [[ "$(docker inspect --format '{{.State.Running}}' "$container")" != 'true' ]]; then
+            echo "::error::The Docker container exited before becoming healthy."
+            exit 1
+          fi
+          if curl --fail --silent --max-time 2 "http://$address/health" > "$RUNNER_TEMP/docker-health.json"; then
+            jq --exit-status --arg version "$EXPECTED_VERSION" \
+              '.status == "healthy" and .version == $version' "$RUNNER_TEMP/docker-health.json"
+            exit 0
+          fi
+          sleep 2
+        done
+        echo "::error::The Docker container did not become healthy in time."
+        exit 1
