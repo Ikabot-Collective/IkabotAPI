@@ -2,7 +2,9 @@ import logging
 import os
 import queue
 import random
+import signal
 import threading
+import time
 from concurrent.futures import Future
 
 from playwright.sync_api import sync_playwright
@@ -10,6 +12,9 @@ from playwright.sync_api import sync_playwright
 import settings
 
 logger = logging.getLogger(__name__)
+
+# Queued after the last job to tell the worker thread to shut down.
+_STOP = object()
 
 DEFAULT_LOCALE = "en-GB"
 DEFAULT_TIMEZONE_ID = "Europe/London"
@@ -25,7 +30,17 @@ class TokenGenerator:
     "Racing with another loop" crashes with uvloop) and avoids paying the
     Chromium start-up cost for every token. Each token still gets its own fresh
     browser context, so no state is shared between tokens. The browser is
-    relaunched every `BROWSER_RECYCLE_AFTER` tokens and after any failure.
+    relaunched every `BROWSER_RECYCLE_AFTER` tokens. After any failure both the
+    browser and the Playwright driver are discarded and recreated on the next
+    request, so a crashed driver cannot leave the generator stuck. Call
+    `close()` to stop the worker and release the browser (the app does this on
+    shutdown).
+
+    A Playwright call can block forever if the driver process dies mid-request
+    (no exception is raised in the worker thread). A watchdog therefore fails
+    any token that runs longer than `TOKEN_JOB_TIMEOUT` seconds, kills the
+    driver, abandons the stuck thread and starts a fresh worker on the same
+    queue.
 
     Usage:
     ```
@@ -52,14 +67,30 @@ class TokenGenerator:
         self._browser = None
         self._served = 0
         self._worker_lock = threading.Lock()
+        self._closed = False
+        self._closed_event = threading.Event()
+        self._generation = 0
+        self._current = None  # (future, started_at) of the job being processed
+        self._driver_pid = None
+        self._watchdog = None
 
-    def _ensure_worker(self):
-        with self._worker_lock:
-            if self._worker is None or not self._worker.is_alive():
-                self._worker = threading.Thread(
-                    target=self._worker_loop, name="token-worker", daemon=True
-                )
-                self._worker.start()
+    def _ensure_worker_locked(self):
+        if self._worker is None or not self._worker.is_alive():
+            self._start_worker_locked()
+        if self._watchdog is None or not self._watchdog.is_alive():
+            self._watchdog = threading.Thread(
+                target=self._watchdog_loop, name="token-watchdog", daemon=True
+            )
+            self._watchdog.start()
+
+    def _start_worker_locked(self):
+        self._worker = threading.Thread(
+            target=self._worker_loop,
+            args=(self._generation,),
+            name="token-worker",
+            daemon=True,
+        )
+        self._worker.start()
 
     def get_token(
         self,
@@ -90,36 +121,126 @@ class TokenGenerator:
             timezone_id if timezone_id else self.default_timezone_id
         )
 
-        self._ensure_worker()
         future = Future()
-        self._jobs.put(
-            (future, effective_ua, effective_locale, effective_timezone_id)
-        )
+        with self._worker_lock:
+            if self._closed:
+                raise RuntimeError("TokenGenerator is closed")
+            self._ensure_worker_locked()
+            self._jobs.put(
+                (future, effective_ua, effective_locale, effective_timezone_id)
+            )
         return future.result()
 
-    def _worker_loop(self):
+    def close(self, timeout: float = 30):
+        """
+        Stop the worker thread and release the browser and Playwright.
+
+        Requests already queued are still served first; new requests are
+        rejected. Safe to call more than once.
+        """
+        with self._worker_lock:
+            if self._closed:
+                return
+            self._closed = True
+            self._closed_event.set()
+            worker = self._worker
+            if worker is not None and worker.is_alive():
+                self._jobs.put(_STOP)
+        if worker is not None:
+            worker.join(timeout)
+
+    def _worker_loop(self, generation):
         """Serve queued token requests, keeping one browser open between them."""
         try:
-            while True:
-                future, user_agent, locale, timezone_id = self._jobs.get()
+            while generation == self._generation:
+                job = self._jobs.get()
+                if job is _STOP:
+                    break
+                future, user_agent, locale, timezone_id = job
                 if not future.set_running_or_notify_cancel():
                     continue
+                self._current = (future, time.monotonic())
                 try:
-                    future.set_result(
-                        self._generate_token(user_agent, locale, timezone_id)
-                    )
+                    token = self._generate_token(user_agent, locale, timezone_id)
                 except BaseException as exc:
-                    # Do not reuse a browser that may be in a bad state.
-                    self._close_browser()
-                    future.set_exception(exc)
+                    with self._worker_lock:
+                        if generation != self._generation:
+                            return  # abandoned by the watchdog; its state is gone
+                        # Do not reuse a browser or driver that may be in a bad
+                        # state. Closing a browser whose driver died can block
+                        # forever, so instead of cleaning up in this thread the
+                        # driver is killed and a fresh worker takes over.
+                        self._replace_worker_locked()
+                    _set_exception(future, exc)
+                    return
+                else:
+                    if generation != self._generation:
+                        return
+                    self._current = None
+                    _set_result(future, token)
         finally:
-            self._close_browser()
-            if self._playwright is not None:
-                try:
-                    self._playwright.stop()
-                except Exception:
-                    logger.exception("Error stopping Playwright")
-                self._playwright = None
+            if generation == self._generation:
+                self._reset()
+
+    def _watchdog_loop(self):
+        """Recover from a worker blocked inside a Playwright call."""
+        while not self._closed_event.wait(1.0):
+            current = self._current
+            if current is None:
+                continue
+            elapsed = time.monotonic() - current[1]
+            if elapsed > settings.TOKEN_JOB_TIMEOUT:
+                self._abandon_worker(current, f"exceeded {settings.TOKEN_JOB_TIMEOUT}s")
+            elif elapsed > 1 and not _process_alive(self._driver_pid):
+                # A dead driver never answers, so there is no point in waiting.
+                self._abandon_worker(current, "driver process died")
+
+    def _abandon_worker(self, current, reason):
+        with self._worker_lock:
+            if self._closed or self._current is not current:
+                return
+            logger.error("Token generation failed (%s); restarting the browser worker", reason)
+            self._replace_worker_locked()
+        _set_exception(
+            current[0], TimeoutError(f"Token generation failed: {reason}")
+        )
+
+    def _replace_worker_locked(self):
+        """Kill the driver, forget this worker's state and start a fresh worker.
+
+        The previous worker thread may be blocked inside Playwright forever; it
+        is left behind (it is a daemon thread) and ignores everything from now
+        on because its generation is stale. Queued requests are picked up by
+        the new worker.
+        """
+        self._generation += 1
+        self._current = None
+        self._kill_driver()
+        self._browser = None
+        self._playwright = None
+        self._served = 0
+        self._start_worker_locked()
+
+    def _kill_driver(self):
+        pid, self._driver_pid = self._driver_pid, None
+        if pid is None:
+            return
+        try:
+            # Windows has no SIGKILL; os.kill() terminates the process there.
+            os.kill(pid, getattr(signal, "SIGKILL", signal.SIGTERM))
+        except OSError:
+            pass
+
+    def _reset(self):
+        """Close the browser and stop the Playwright driver; both are recreated on demand."""
+        self._close_browser()
+        playwright, self._playwright = self._playwright, None
+        self._driver_pid = None
+        if playwright is not None:
+            try:
+                playwright.stop()
+            except Exception:
+                logger.exception("Error stopping Playwright")
 
     def _get_browser(self):
         """Return the shared browser, (re)launching it when needed. Worker thread only."""
@@ -130,6 +251,7 @@ class TokenGenerator:
         if self._browser is None:
             if self._playwright is None:
                 self._playwright = sync_playwright().start()
+                self._driver_pid = _driver_pid(self._playwright)
             self._browser = self._playwright.chromium.launch(
                 headless=settings.PLAYWRIGHT_HEADLESS,
                 args=[
@@ -177,3 +299,34 @@ class TokenGenerator:
             context.close()
         self._served += 1
         return token
+
+
+def _set_result(future, value):
+    if not future.done():
+        future.set_result(value)
+
+
+def _set_exception(future, exc):
+    if not future.done():
+        future.set_exception(exc)
+
+
+def _driver_pid(playwright):
+    """PID of the Playwright driver process, or None if it cannot be found."""
+    try:
+        return playwright._impl_obj._connection._transport._proc.pid
+    except AttributeError:
+        return None
+
+
+def _process_alive(pid):
+    """False only when `pid` is known to be gone (or a zombie). Linux only."""
+    if pid is None:
+        return True
+    try:
+        with open(f"/proc/{pid}/stat") as f:
+            return f.read().rsplit(")", 1)[1].split()[0] != "Z"
+    except FileNotFoundError:
+        return not os.path.isdir("/proc")
+    except (OSError, IndexError):
+        return True
