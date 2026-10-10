@@ -24,14 +24,16 @@ defaults:
 
 jobs:
   update_version_number:
-    name: Update Version Number
+    name: Validate Release and Push Version
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     permissions:
       contents: write
       issues: read
     outputs:
       commit_sha: ${{ steps.commit.outputs.sha }}
       milestone_number: ${{ steps.milestone.outputs.number }}
+      image_checksum: ${{ steps.image.outputs.checksum }}
     steps:
       - name: Validate release input
         env:
@@ -48,7 +50,7 @@ jobs:
 
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.ref }}
+          ref: ${{ github.sha }}
           fetch-depth: 0
 
       - name: Find milestone and check tag
@@ -66,16 +68,12 @@ jobs:
           fi
           echo "number=$number" >> "$GITHUB_OUTPUT"
 
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.10'
-
       - name: Replace version values
         env:
           VERSION: ${{ inputs.milestone }}
-        run: python .github/scripts/bump_version.py "$VERSION"
+        run: python3 .github/scripts/bump_version.py "$VERSION"
 
-      - name: Commit and push version update
+      - name: Commit version update locally
         id: commit
         env:
           VERSION: ${{ inputs.milestone }}
@@ -86,16 +84,38 @@ jobs:
           if ! git diff --cached --quiet; then
             git commit -m "Bump Ikabot API version $VERSION"
           fi
-          git push origin HEAD:main
-          # github.sha still refers to the commit that started this workflow.
+          # Keep the commit local until its tests and Docker checks succeed.
           echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
-  test:
-    name: Test Release Commit
-    needs: update_version_number
-    uses: ./.github/workflows/test.yml
-    with:
-      ref: ${{ needs.update_version_number.outputs.commit_sha }}
+      - name: Test release commit
+        uses: ./.github/actions/run-tests
+
+      - name: Build and check release image
+        uses: ./.github/actions/check-docker
+        with:
+          ref: ${{ steps.commit.outputs.sha }}
+          version: ${{ inputs.milestone }}
+
+      - name: Save validated image
+        id: image
+        run: |
+          docker save --output "$RUNNER_TEMP/release-image.tar" ikabot-api:check
+          checksum=$(sha256sum "$RUNNER_TEMP/release-image.tar" | cut -d ' ' -f 1)
+          echo "checksum=$checksum" >> "$GITHUB_OUTPUT"
+
+      - name: Upload validated image
+        uses: actions/upload-artifact@v4
+        with:
+          name: ReleaseImage
+          path: ${{ runner.temp }}/release-image.tar
+          compression-level: 1
+          retention-days: 7
+          if-no-files-found: error
+          overwrite: true
+
+      - name: Push validated version commit
+        # A concurrent main update must fail here instead of publishing untested code.
+        run: git push origin HEAD:main
 
   build_release_notes:
     name: Generate Release Notes
@@ -137,11 +157,12 @@ jobs:
 
   publish_docker:
     name: Publish Docker Image
-    needs: [update_version_number, test, build_release_notes]
+    needs: [update_version_number, build_release_notes]
     uses: ./.github/workflows/publish_docker.yml
     with:
       tag_name: v${{ inputs.milestone }}
       ref: ${{ needs.update_version_number.outputs.commit_sha }}
+      image_checksum: ${{ needs.update_version_number.outputs.image_checksum }}
     permissions:
       contents: read
       packages: write
