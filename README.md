@@ -33,32 +33,62 @@ When self-hosting locally:
 
 ### Prerequisites
 
-* **Docker** installed on your Linux server.
+* **Docker** installed on your Linux server, with the **Docker Compose** plugin if using Nginx.
 
-### Run the API
+### Build from source (default)
 
-You can launch the API using one of the following methods, depending on whether you want to use Nginx or an existing reverse proxy.
+Clone this repository and run the following commands from its root directory. The supplied `docker-compose.yml` builds the API locally by default; no configuration changes are needed.
 
-#### Method 1: Using Docker with Nginx
+#### With Nginx (Docker Compose)
 
 ```bash
-docker-compose up -d --build
+docker compose up -d --build
 ```
 
-* Default port: **80** (configurable in `/nginx/app.conf`).
+The API is accessible through Nginx on port **80**, with Swagger UI at `http://localhost/docs`.
 
-#### Method 2: Without Nginx (Using an Existing Reverse Proxy)
+#### Without Nginx (using an existing reverse proxy)
 
 ```bash
 docker build -t ikabotapi .
 docker run -d -p 5005:5005 ikabotapi
 ```
 
-> Need a different host port?
+Swagger UI is available at `http://localhost:5005/docs`. To use a different host port, replace `-p 5005:5005` with, for example, `-p 8000:5005`.
+
+### Alternative: use a prebuilt release image
+
+If you prefer to skip the local build, release images are also published to GitHub Container Registry (GHCR). Images become available after the first successful release; the package must be public for downloads without authentication.
+
+Choose a published version from the [releases page](https://github.com/Ikabot-Collective/IkabotAPI/releases). Before using the examples below, replace `<VERSION>` with the chosen version number in `MAJOR.MINOR.PATCH` format, without the `v` prefix (already included in the image tags). Use a version tag to keep deployments reproducible. The separate `latest` tag points to the most recently published release.
+
+#### With Nginx (Docker Compose)
+
+Clone this repository, or copy `docker-compose.yml` and the `nginx/` directory to your server. In `docker-compose.yml`, replace `build: .` under the `app` service with:
+
+```yaml
+    image: "ghcr.io/ikabot-collective/ikabotapi:v<VERSION>"
+```
+
+Keep all other service settings, including `container_name: ikabotapi`, the network, the health check, and the Nginx service. No changes to `nginx/app.conf` are needed: the API still listens on port `5005`.
+
+From the directory containing `docker-compose.yml`, run:
 
 ```bash
-docker run -d -p 8000:5005 ikabotapi
+docker compose pull
+docker compose up -d
 ```
+
+The API is accessible through Nginx on port **80**, with Swagger UI at `http://localhost/docs`. To upgrade, change the image tag to another published version and run these commands again. Using `latest` also requires pulling the image and recreating the container; it does not update a running container automatically.
+
+#### Without Nginx (using an existing reverse proxy)
+
+```bash
+docker pull "ghcr.io/ikabot-collective/ikabotapi:v<VERSION>"
+docker run -d --name ikabotapi --restart always -p 5005:5005 "ghcr.io/ikabot-collective/ikabotapi:v<VERSION>"
+```
+
+Swagger UI is available at `http://localhost:5005/docs`. To use a different host port, replace `-p 5005:5005` with, for example, `-p 8000:5005`.
 
 ---
 
@@ -110,6 +140,33 @@ Run the test suite:
 ```bash
 poetry run pytest tests
 ```
+
+---
+
+## Publishing a release
+
+Releases follow the same milestone-based process as the Ikabot client:
+
+1. Choose the next stable version in `MAJOR.MINOR.PATCH` format, represented below by `<VERSION>`. Create an open GitHub milestone whose title is that version number (without `v`), and assign the relevant issues and pull requests.
+2. Merge the changes to `main`.
+3. Open **Actions → Publish Release → Run workflow**, select `main`, and enter the milestone title.
+
+The workflow updates `apps/__init__.py` and the Poetry version in `pyproject.toml`, commits the change as `github-actions[bot]`, and pushes it to `main`. The application uses `apps.__version__` for its OpenAPI schema, health response, and home page. Tests, release notes, the release tag, and the Docker build all use the resulting commit SHA, including the version bump.
+
+Release notes use GitHub's generated changelog and the same `Keboo/GitHubHelper@master` contributor section as Ikabot. Contributors are selected by milestone; the generated changelog describes changes since the previous release, with categories configured in `.github/release.yml`.
+
+After the tests pass, the workflow builds and publishes the Docker image to GitHub Container Registry (GHCR):
+
+```text
+ghcr.io/ikabot-collective/ikabotapi:v<VERSION>
+ghcr.io/ikabot-collective/ikabotapi:latest
+```
+
+It then creates the GitHub release `v<VERSION>` as a draft, publishes it automatically, and closes the milestone. This workflow only publishes releases and images; it does not update a running server.
+
+The workflow uses the built-in `GITHUB_TOKEN`; no Docker Hub or PyPI credentials are needed. Repository/organization policies must allow GitHub Actions to push the version commit to `main` and publish packages. If `main` is protected against direct bot pushes, that policy must be addressed before running a release. For anonymous image downloads, set the GHCR package visibility to public after its first publication.
+
+Only one release runs at a time. Invalid version titles, version downgrades, missing open milestones, and existing release tags are rejected. If a job fails, use **Re-run failed jobs** on the original run to keep using the same version commit. A failure can leave the version commit on `main`, an uploaded image, or a draft release; the milestone closes only after the release is published.
 
 ---
 

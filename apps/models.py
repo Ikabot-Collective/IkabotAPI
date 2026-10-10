@@ -1,8 +1,10 @@
 from pydantic import BaseModel
 
+from apps import __version__
+
 
 class HealthResponse(BaseModel):
     """Health check response model"""
     status: str = "healthy"
-    version: str = "2.0.0"
+    version: str = __version__
     uptime: float

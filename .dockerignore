@@ -23,6 +23,7 @@ __pycache__/
 tests/
 pytest_cache/
 .pytest_cache/
+.cache/
 
 # Documentation (keep README.md for poetry)
 LICENSE

@@ -8,6 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 import settings
+from apps import __version__
 from apps.decaptcha.routes import router as decaptcha_router
 from apps.home.routes import router as home_router
 from apps.token.routes import router as token_router
@@ -68,7 +69,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Ikabot API",
     description="API for Ikabot captcha solving and token generation",
-    version="2.0.0",
+    version=__version__,
     docs_url="/docs",
     redoc_url="/redoc",
     lifespan=lifespan,

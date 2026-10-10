@@ -1,2 +1,1 @@
-# FastAPI application structure
-# This file is kept for Python package structure
+__version__ = "2.0.0"
