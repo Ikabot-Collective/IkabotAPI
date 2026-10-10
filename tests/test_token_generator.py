@@ -3,6 +3,7 @@ import os
 
 import pytest
 
+import settings
 from apps.token.TokenGenerator import TokenGenerator
 from tests.token_validator import verify_token_format
 
@@ -95,3 +96,59 @@ def test_get_token_uses_default_locale_and_timezone(token_generator):
         "locale": "en-GB",
         "timezone_id": "Europe/London",
     }
+
+
+def test_get_token_reuses_browser_with_a_fresh_context_per_token(token_generator):
+    token_generator.get_token()
+    browser = token_generator._browser
+    assert browser is not None
+
+    contexts = []
+    original_new_context = browser.new_context
+
+    def spy_new_context(**kwargs):
+        contexts.append(kwargs)
+        return original_new_context(**kwargs)
+
+    browser.new_context = spy_new_context
+
+    first_ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3"
+    second_ua = token_generator.supported_user_agents[0]
+    first = token_generator.get_token(
+        user_agent=first_ua, locale="es-AR", timezone_id="America/Argentina/Buenos_Aires"
+    )
+    second = token_generator.get_token(
+        user_agent=second_ua, locale="en-GB", timezone_id="Europe/London"
+    )
+
+    assert token_generator._browser is browser, "Browser should be reused"
+    assert first != second
+    assert contexts == [
+        {"user_agent": first_ua, "locale": "es-AR", "timezone_id": "America/Argentina/Buenos_Aires"},
+        {"user_agent": second_ua, "locale": "en-GB", "timezone_id": "Europe/London"},
+    ]
+
+
+def test_get_token_relaunches_browser_after_recycle_limit(token_generator):
+    token_generator.get_token()
+    browser = token_generator._browser
+    token_generator._served = settings.BROWSER_RECYCLE_AFTER
+
+    verify_token_format(token_generator.get_token())
+
+    assert token_generator._browser is not browser, "Browser should be relaunched"
+
+
+def test_get_token_recovers_after_a_failed_token(token_generator):
+    token_generator.get_token()
+    browser = token_generator._browser
+
+    def broken_new_context(**kwargs):
+        raise RuntimeError("boom")
+
+    browser.new_context = broken_new_context
+    with pytest.raises(RuntimeError):
+        token_generator.get_token()
+
+    verify_token_format(token_generator.get_token())
+    assert token_generator._browser is not browser
