@@ -136,18 +136,41 @@ class TokenGenerator:
         Stop the worker thread and release the browser and Playwright.
 
         Requests already queued are still served first; new requests are
-        rejected. Safe to call more than once.
+        rejected. If the worker does not stop within `timeout` seconds (for
+        example because it is stuck inside Playwright), the request in progress
+        and any queued ones are failed so no caller waits forever. Safe to call
+        more than once.
         """
         with self._worker_lock:
             if self._closed:
                 return
             self._closed = True
-            self._closed_event.set()
             worker = self._worker
             if worker is not None and worker.is_alive():
                 self._jobs.put(_STOP)
         if worker is not None:
             worker.join(timeout)
+        self._closed_event.set()  # stop the watchdog only once the worker is done
+        if worker is not None and worker.is_alive():
+            self._fail_pending("TokenGenerator closed while a token was running")
+
+    def _fail_pending(self, reason):
+        """Abandon a worker that did not stop and fail every pending request."""
+        with self._worker_lock:
+            self._generation += 1  # the stuck worker must not touch anything else
+            current, self._current = self._current, None
+            self._kill_driver()
+            self._browser = None
+            self._playwright = None
+        if current is not None:
+            _set_exception(current[0], RuntimeError(reason))
+        while True:
+            try:
+                job = self._jobs.get_nowait()
+            except queue.Empty:
+                break
+            if job is not _STOP:
+                _set_exception(job[0], RuntimeError(reason))
 
     def _worker_loop(self, generation):
         """Serve queued token requests, keeping one browser open between them."""
@@ -185,15 +208,23 @@ class TokenGenerator:
     def _watchdog_loop(self):
         """Recover from a worker blocked inside a Playwright call."""
         while not self._closed_event.wait(1.0):
-            current = self._current
-            if current is None:
-                continue
-            elapsed = time.monotonic() - current[1]
-            if elapsed > settings.TOKEN_JOB_TIMEOUT:
-                self._abandon_worker(current, f"exceeded {settings.TOKEN_JOB_TIMEOUT}s")
-            elif elapsed > 1 and not _process_alive(self._driver_pid):
-                # A dead driver never answers, so there is no point in waiting.
-                self._abandon_worker(current, "driver process died")
+            # Never let an unexpected error stop the watchdog: without it a
+            # stuck token would leave its caller waiting forever.
+            try:
+                self._check_current_job()
+            except Exception:
+                logger.exception("Token watchdog check failed")
+
+    def _check_current_job(self):
+        current = self._current
+        if current is None:
+            return
+        elapsed = time.monotonic() - current[1]
+        if elapsed > settings.TOKEN_JOB_TIMEOUT:
+            self._abandon_worker(current, f"exceeded {settings.TOKEN_JOB_TIMEOUT}s")
+        elif elapsed > 1 and not _process_alive(self._driver_pid):
+            # A dead driver never answers, so there is no point in waiting.
+            self._abandon_worker(current, "driver process died")
 
     def _abandon_worker(self, current, reason):
         with self._worker_lock:

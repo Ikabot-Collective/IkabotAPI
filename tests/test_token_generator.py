@@ -268,3 +268,36 @@ def test_get_token_recovers_when_the_driver_dies_during_a_token(
 
     assert not thread.is_alive(), "The request must not hang"
     verify_token_format(token_generator.get_token())
+
+
+def test_close_fails_pending_requests_when_the_worker_is_stuck(token_generator):
+    release = threading.Event()
+
+    def stuck_generate_token(user_agent, locale, timezone_id):
+        release.wait(30)  # simulates a Playwright call that never returns
+        raise RuntimeError("released")
+
+    token_generator._generate_token = stuck_generate_token
+    outcomes = []
+
+    def request():
+        try:
+            outcomes.append(token_generator.get_token())
+        except Exception as exc:
+            outcomes.append(exc)
+
+    threads = [threading.Thread(target=request) for _ in range(2)]
+    try:
+        for thread in threads:
+            thread.start()
+            time.sleep(0.2)  # the first one runs, the second one waits in the queue
+
+        token_generator.close(timeout=1)
+        for thread in threads:
+            thread.join(10)
+
+        assert not any(thread.is_alive() for thread in threads), "Callers must not hang"
+        assert len(outcomes) == 2
+        assert all(isinstance(outcome, RuntimeError) for outcome in outcomes)
+    finally:
+        release.set()
