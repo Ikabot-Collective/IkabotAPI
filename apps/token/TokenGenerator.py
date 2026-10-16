@@ -5,7 +5,7 @@ import random
 import signal
 import threading
 import time
-from concurrent.futures import Future
+from concurrent.futures import Future, InvalidStateError
 
 from playwright.sync_api import sync_playwright
 
@@ -150,12 +150,15 @@ class TokenGenerator:
                 self._jobs.put(_STOP)
         if worker is not None:
             worker.join(timeout)
-        self._closed_event.set()  # stop the watchdog only once the worker is done
+        # The watchdog cannot replace a worker once the generator is closed, so
+        # a worker still stuck at this point is handled by _fail_pending().
+        self._closed_event.set()
         if worker is not None and worker.is_alive():
             self._fail_pending("TokenGenerator closed while a token was running")
 
     def _fail_pending(self, reason):
         """Abandon a worker that did not stop and fail every pending request."""
+        logger.error("Token worker did not stop on close; failing pending requests")
         with self._worker_lock:
             self._generation += 1  # the stuck worker must not touch anything else
             current, self._current = self._current, None
@@ -332,14 +335,20 @@ class TokenGenerator:
         return token
 
 
+# The worker, the watchdog and close() can race to complete the same future;
+# whoever comes second must not fail.
 def _set_result(future, value):
-    if not future.done():
+    try:
         future.set_result(value)
+    except InvalidStateError:
+        pass
 
 
 def _set_exception(future, exc):
-    if not future.done():
+    try:
         future.set_exception(exc)
+    except InvalidStateError:
+        pass
 
 
 def _driver_pid(playwright):

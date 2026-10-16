@@ -4,11 +4,12 @@ import signal
 import sys
 import threading
 import time
+from concurrent.futures import Future
 
 import pytest
 
 import settings
-from apps.token.TokenGenerator import TokenGenerator
+from apps.token.TokenGenerator import TokenGenerator, _set_exception, _set_result
 from tests.token_validator import verify_token_format
 
 
@@ -301,3 +302,12 @@ def test_close_fails_pending_requests_when_the_worker_is_stuck(token_generator):
         assert all(isinstance(outcome, RuntimeError) for outcome in outcomes)
     finally:
         release.set()
+
+
+def test_completing_a_future_twice_does_not_raise():
+    # The worker, the watchdog and close() may race to complete the same future.
+    future = Future()
+    _set_result(future, "token")
+    _set_exception(future, RuntimeError("late"))
+    _set_result(future, "other")
+    assert future.result() == "token"

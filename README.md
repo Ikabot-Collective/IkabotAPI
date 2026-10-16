@@ -200,9 +200,18 @@ Options to set it:
 
 ### Token Generation
 
-Blackbox tokens are generated fresh for every request. Playwright calls are serialized with a threading lock.
+Blackbox tokens are generated fresh for every request. A single worker thread keeps one Chromium open and serves
+requests in order (FIFO), opening a new browser context (user agent, locale, timezone) for each token. The browser is
+relaunched every `BROWSER_RECYCLE_AFTER` tokens and after any failure. A token that runs longer than
+`TOKEN_JOB_TIMEOUT` seconds is failed and the worker is restarted.
 The `/v1/token` route accepts optional `user_agent`, `locale`, and `timezone_id` query parameters.
 When omitted, `locale` defaults to `en-GB` and `timezone_id` defaults to `Europe/London`.
+
+| Variable | Default | Description |
+|---|---|---|
+| `PLAYWRIGHT_HEADLESS` | `false` | Run Chromium headless (Docker uses Xvfb when `false`) |
+| `BROWSER_RECYCLE_AFTER` | `100` | Relaunch the shared browser after this many tokens |
+| `TOKEN_JOB_TIMEOUT` | `120` | Seconds a single token may run before it is failed and the worker restarted |
 
 ---
 
