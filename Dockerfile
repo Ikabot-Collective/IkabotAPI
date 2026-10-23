@@ -20,6 +20,7 @@ RUN apt-get update && \
         curl \
         gnupg \
         ca-certificates \
+        tini \
         xvfb \
         xauth && \
     apt-get clean && \
@@ -28,5 +29,6 @@ RUN apt-get update && \
 # Install playwright browsers and dependencies in one command (best practice)
 RUN python -m playwright install --with-deps chromium
 
-# Use xvfb-run to provide virtual display for non-headless Playwright
-CMD xvfb-run --auto-servernum --server-args="-screen 0 1920x1080x24" uvicorn main:app --host 0.0.0.0 --port 5005 --workers 1 --access-log --log-level info
+# Forward signals to Uvicorn and reap browser subprocesses.
+ENTRYPOINT ["/usr/bin/tini", "--", "sh", "/ikabotapi/docker-entrypoint.sh"]
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "5005", "--workers", "1", "--access-log", "--log-level", "info"]

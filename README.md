@@ -120,6 +120,10 @@ poetry run playwright install --with-deps chromium
 poetry run uvicorn main:app --reload --host 0.0.0.0 --port 5000
 ```
 
+On Windows, omit `--reload` with the pinned Uvicorn version: its reloader uses
+an event loop that cannot start the subprocess required by async Playwright.
+The single-process command and the Linux Docker image support async Playwright.
+
 * API: `http://localhost:5000`
 * Docs: `http://localhost:5000/docs`
 
@@ -151,7 +155,7 @@ Releases follow the same milestone-based process as the Ikabot client:
 2. Merge the changes to `main`.
 3. Open **Actions → Publish Release → Run workflow**, select `main`, and enter the milestone title.
 
-Pull requests targeting `main` and pushes to `main` run the Python tests and a **Docker Build & Smoke Test** check in parallel. The Docker check builds without publishing, starts the container with its default command, and checks that `/health` reports a healthy status and the expected application version. Making these checks required in branch protection also requires an appropriate release bot bypass or a release flow through pull requests: the current direct version push cannot satisfy required GitHub checks on a commit that has not yet been pushed.
+Pull requests targeting `main` and pushes to `main` run the Python tests and a **Docker Build & Smoke Test** check in parallel. The Docker check builds without publishing, starts the container with its default command, and checks that `/health` reports a healthy status and the expected application version. It also generates a token through `/v1/token` and checks that the container shuts down cleanly. Making these checks required in branch protection also requires an appropriate release bot bypass or a release flow through pull requests: the current direct version push cannot satisfy required GitHub checks on a commit that has not yet been pushed.
 
 The release workflow updates `apps/__init__.py` and the Poetry version in `pyproject.toml` and creates a local commit as `github-actions[bot]`. It runs the Python tests and the same Docker build and smoke test against that commit, with the new version already included. Only after these checks succeed and the validated image is saved as a workflow artifact does it push the version commit to `main`. A test or build failure therefore leaves `main` unchanged. If `main` advances in the meantime, the push fails instead of silently including untested changes; start a new release run from the updated `main` in that case.
 
@@ -200,9 +204,29 @@ Options to set it:
 
 ### Token Generation
 
-Blackbox tokens are generated fresh for every request. Playwright calls are serialized with a threading lock.
+Blackbox tokens are generated fresh for every request. FastAPI's lifespan owns an async Playwright service,
+injected into `/v1/token`. It starts Chromium on the first token and reuses it, opening and closing a fresh
+browser context (user agent, locale, timezone) for each token. An async lock serves token requests in order,
+one at a time, while other API routes remain available. Docker keeps one Uvicorn worker; adding workers
+would create a separate browser in each process.
+The container entrypoint waits for Xvfb, then runs Uvicorn under Tini so that
+`docker stop` reaches the server and runs lifespan cleanup.
+
+Chromium stays running between requests without periodic restarts. Each token generation has a
+120-second deadline by default, configurable with `TOKEN_GENERATION_TIMEOUT_SECONDS`.
+On a failure or timeout, the affected request fails and its browser/driver is retired before the next
+request starts a new session.
+The deadline excludes time waiting for the lock and bounded cleanup time.
+Cancelling an HTTP request does not interrupt Playwright mid-call: generation finishes or reaches its deadline
+and closes its context. Application shutdown rejects queued requests and closes the active session.
+If even forced driver shutdown cannot finish, token generation rejects further requests until the API is restarted.
 The `/v1/token` route accepts optional `user_agent`, `locale`, and `timezone_id` query parameters.
 When omitted, `locale` defaults to `en-GB` and `timezone_id` defaults to `Europe/London`.
+
+| Variable | Default | Description |
+|---|---|---|
+| `PLAYWRIGHT_HEADLESS` | `false` | Run Chromium headless (Docker uses Xvfb when `false`) |
+| `TOKEN_GENERATION_TIMEOUT_SECONDS` | `120` | Active generation timeout in seconds; must be positive and finite. Excludes queue wait and cleanup |
 
 ---
 
