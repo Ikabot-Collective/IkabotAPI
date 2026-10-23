@@ -10,9 +10,7 @@ LOGS_WEBHOOK_URL = os.getenv("LOGS_WEBHOOK_URL")
 # Playwright headless mode (default: False for production with Xvfb)
 PLAYWRIGHT_HEADLESS = os.getenv("PLAYWRIGHT_HEADLESS", "false").lower() == "true"
 
-# Relaunch the shared Chromium after this many tokens to bound memory growth
-BROWSER_RECYCLE_AFTER = int(os.getenv("BROWSER_RECYCLE_AFTER", "100"))
-
-# A token that takes longer than this many seconds is considered stuck (for
-# example because the Playwright driver died); its worker is restarted.
-TOKEN_JOB_TIMEOUT = float(os.getenv("TOKEN_JOB_TIMEOUT", "120"))
+# Active generation deadline in seconds (queue wait and cleanup are excluded).
+TOKEN_GENERATION_TIMEOUT_SECONDS = float(os.getenv("TOKEN_GENERATION_TIMEOUT_SECONDS", "120"))
+if not 0 < TOKEN_GENERATION_TIMEOUT_SECONDS < float("inf"):
+    raise ValueError("TOKEN_GENERATION_TIMEOUT_SECONDS must be a positive finite number")

@@ -7,4 +7,5 @@ from main import app
 @pytest.fixture
 def client():
     """FastAPI test client fixture"""
-    return TestClient(app)
+    with TestClient(app) as test_client:
+        yield test_client

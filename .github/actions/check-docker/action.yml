@@ -1,5 +1,5 @@
 name: Check Docker image
-description: Build without publishing and check the default container startup and health response.
+description: Build without publishing and check startup, token generation, and clean shutdown.
 
 inputs:
   ref:
@@ -43,7 +43,7 @@ runs:
           org.opencontainers.image.revision=${{ inputs.ref }}
           org.opencontainers.image.licenses=MIT
 
-    - name: Check container startup and version
+    - name: Check container startup, token generation, and shutdown
       shell: bash
       env:
         EXPECTED_VERSION: ${{ steps.version.outputs.value }}
@@ -56,6 +56,7 @@ runs:
         }
         trap cleanup EXIT
         address=$(docker port "$container" 5005/tcp)
+        healthy=false
         for attempt in $(seq 1 60); do
           if [[ "$(docker inspect --format '{{.State.Running}}' "$container")" != 'true' ]]; then
             echo "::error::The Docker container exited before becoming healthy."
@@ -64,9 +65,20 @@ runs:
           if curl --fail --silent --max-time 2 "http://$address/health" > "$RUNNER_TEMP/docker-health.json"; then
             jq --exit-status --arg version "$EXPECTED_VERSION" \
               '.status == "healthy" and .version == $version' "$RUNNER_TEMP/docker-health.json"
-            exit 0
+            healthy=true
+            break
           fi
           sleep 2
         done
-        echo "::error::The Docker container did not become healthy in time."
-        exit 1
+        if [[ "$healthy" != 'true' ]]; then
+          echo "::error::The Docker container did not become healthy in time."
+          exit 1
+        fi
+        curl --fail --silent --show-error --max-time 150 \
+          "http://$address/v1/token" > "$RUNNER_TEMP/docker-token.json"
+        jq --exit-status 'type == "string" and length > 0' "$RUNNER_TEMP/docker-token.json"
+        docker stop --timeout 30 "$container" > /dev/null
+        if [[ "$(docker inspect --format '{{.State.ExitCode}}' "$container")" != '0' ]]; then
+          echo "::error::The Docker container did not shut down cleanly."
+          exit 1
+        fi

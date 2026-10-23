@@ -1,4 +1,3 @@
-import asyncio
 import logging
 from contextlib import asynccontextmanager
 
@@ -12,7 +11,8 @@ import settings
 from apps import __version__
 from apps.decaptcha.routes import router as decaptcha_router
 from apps.home.routes import router as home_router
-from apps.token import token_generator
+from apps.token import supported_user_agents
+from apps.token.TokenGenerator import TokenGenerator
 from apps.token.routes import router as token_router
 
 logger = logging.getLogger(__name__)
@@ -62,11 +62,17 @@ def setup_logger():
 async def lifespan(app: FastAPI):
     # Startup
     setup_logger()
+    # The service belongs to this lifespan/event loop. Chromium starts lazily on
+    # the first token and remains available until a failure or shutdown.
+    token_generator = TokenGenerator(supported_user_agents)
+    app.state.token_generator = token_generator
     logger.info("Ikabot API ready!")
-    yield
-    # Shutdown
-    logger.info("Ikabot API shutting down")
-    await asyncio.to_thread(token_generator.close)
+    try:
+        yield
+    finally:
+        logger.info("Ikabot API shutting down")
+        await token_generator.close()
+        del app.state.token_generator
 
 
 app = FastAPI(

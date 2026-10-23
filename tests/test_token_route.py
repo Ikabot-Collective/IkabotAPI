@@ -71,14 +71,17 @@ def test_v1_token_route_passes_locale_and_timezone_to_token_generator(
         default_locale = "en-GB"
         default_timezone_id = "Europe/London"
 
-        def get_token(self, user_agent=None, locale=None, timezone_id=None):
+        async def get_token(self, user_agent=None, locale=None, timezone_id=None):
             captured["user_agent"] = user_agent
             captured["locale"] = locale
             captured["timezone_id"] = timezone_id
             return "ValidToken123"
 
     user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.3"
-    monkeypatch.setattr(token_routes, "token_generator", FakeTokenGenerator())
+    monkeypatch.setitem(
+        client.app.dependency_overrides, token_routes.get_token_generator,
+        lambda: FakeTokenGenerator(),
+    )
 
     response = client.get(
         "/v1/token",
@@ -105,10 +108,13 @@ def test_v1_token_route_rejects_invalid_locale(client: TestClient, monkeypatch):
         default_locale = "en-GB"
         default_timezone_id = "Europe/London"
 
-        def get_token(self, user_agent=None, locale=None, timezone_id=None):
+        async def get_token(self, user_agent=None, locale=None, timezone_id=None):
             raise AssertionError("token generator should not be called")
 
-    monkeypatch.setattr(token_routes, "token_generator", FakeTokenGenerator())
+    monkeypatch.setitem(
+        client.app.dependency_overrides, token_routes.get_token_generator,
+        lambda: FakeTokenGenerator(),
+    )
 
     response = client.get("/v1/token?locale=not a locale")
 
@@ -123,10 +129,13 @@ def test_v1_token_route_rejects_invalid_timezone(client: TestClient, monkeypatch
         default_locale = "en-GB"
         default_timezone_id = "Europe/London"
 
-        def get_token(self, user_agent=None, locale=None, timezone_id=None):
+        async def get_token(self, user_agent=None, locale=None, timezone_id=None):
             raise AssertionError("token generator should not be called")
 
-    monkeypatch.setattr(token_routes, "token_generator", FakeTokenGenerator())
+    monkeypatch.setitem(
+        client.app.dependency_overrides, token_routes.get_token_generator,
+        lambda: FakeTokenGenerator(),
+    )
 
     response = client.get("/v1/token?timezone_id=not a timezone")
 

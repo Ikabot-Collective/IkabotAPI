@@ -1,372 +1,200 @@
+import asyncio
 import logging
-import os
-import queue
 import random
-import signal
-import threading
-import time
-from concurrent.futures import Future, InvalidStateError
+from pathlib import Path
 
-from playwright.sync_api import sync_playwright
+from playwright.async_api import Browser, Playwright, async_playwright
 
 import settings
 
 logger = logging.getLogger(__name__)
+_CLEANUP_TIMEOUT = 5
 
-# Queued after the last job to tell the worker thread to shut down.
-_STOP = object()
 
-DEFAULT_LOCALE = "en-GB"
-DEFAULT_TIMEZONE_ID = "Europe/London"
+def _consume_result(task: asyncio.Task) -> None:
+    # A disconnected HTTP client may no longer be awaiting its generation task.
+    if not task.cancelled():
+        task.exception()
+
+
+async def _settle(task: asyncio.Task, timeout: float = _CLEANUP_TIMEOUT) -> bool:
+    """Wait without cancelling an in-flight Playwright call."""
+    done, _ = await asyncio.wait({task}, timeout=timeout)
+    if done:
+        _consume_result(task)
+    else:
+        task.add_done_callback(_consume_result)
+    return bool(done)
+
+
+class _BrowserSession:
+    """Own one driver/browser; a retired session never modifies its replacement."""
+
+    def __init__(self):
+        self.browser: Browser | None = None
+        self._playwright: Playwright | None = None
+        self._manager = None
+        self._closed = False
+
+    async def get_browser(self) -> Browser:
+        if self._closed:
+            raise RuntimeError("Browser session is closed")
+        if self.browser is not None and not self.browser.is_connected():
+            await self.browser.close()
+            self.browser = None
+        if self._closed:
+            raise RuntimeError("Browser session is closed")
+        if self.browser is None:
+            if self._playwright is None:
+                self._manager = async_playwright()
+                playwright = await self._manager.start()
+                if self._closed:
+                    await playwright.stop()
+                    raise RuntimeError("Browser session is closed")
+                self._playwright = playwright
+            browser = await self._playwright.chromium.launch(
+                headless=settings.PLAYWRIGHT_HEADLESS,
+                args=["--no-sandbox", "--disable-setuid-sandbox"],
+                timeout=settings.TOKEN_GENERATION_TIMEOUT_SECONDS * 1000,
+            )
+            if self._closed:
+                await browser.close()
+                raise RuntimeError("Browser session is closed")
+            self.browser = browser
+        return self.browser
+
+    async def close(self) -> bool:
+        self._closed = True
+        browser, self.browser = self.browser, None
+        self._playwright = None
+        browser_close = asyncio.create_task(browser.close()) if browser else None
+        if browser_close:
+            await _settle(browser_close)
+        if self._manager is None:
+            return True
+
+        # Closing the driver also interrupts pending context/page operations.
+        driver_close = asyncio.create_task(self._manager.__aexit__())
+        if not await _settle(driver_close):
+            self._kill_driver()
+            if not await _settle(driver_close):
+                return False
+        if driver_close.exception() is not None:
+            self._kill_driver()
+            return False
+        return browser_close is None or await _settle(browser_close)
+
+    def _kill_driver(self) -> None:
+        # Playwright has no public force-stop API. Use its owned Process object
+        # only if graceful shutdown hangs; never kill a process by a stale PID.
+        try:
+            process = self._manager._connection._transport._proc
+            if process.returncode is None:
+                logger.warning("Force-stopping an unresponsive Playwright driver")
+                process.kill()
+        except (AttributeError, OSError):
+            logger.exception("Unable to force-stop the Playwright driver")
 
 
 class TokenGenerator:
-    """
-    TokenGenerator class for generating tokens using Playwright.
+    """Async, serial token generation with one persistent Chromium per app."""
 
-    A single dedicated worker thread owns the Playwright instance and a
-    long-lived Chromium browser. Requests are queued (FIFO) and served one at a
-    time, which prevents concurrent Playwright subprocess spawning (the
-    "Racing with another loop" crashes with uvloop) and avoids paying the
-    Chromium start-up cost for every token. Each token still gets its own fresh
-    browser context, so no state is shared between tokens. The browser is
-    relaunched every `BROWSER_RECYCLE_AFTER` tokens. After any failure both the
-    browser and the Playwright driver are discarded and recreated on the next
-    request, so a crashed driver cannot leave the generator stuck. Call
-    `close()` to stop the worker and release the browser (the app does this on
-    shutdown).
-
-    A Playwright call can block forever if the driver process dies mid-request
-    (no exception is raised in the worker thread). A watchdog therefore fails
-    any token that runs longer than `TOKEN_JOB_TIMEOUT` seconds, kills the
-    driver, abandons the stuck thread and starts a fresh worker on the same
-    queue.
-
-    Usage:
-    ```
-    token_generator = TokenGenerator(supported_user_agents=["User Agent 1", "User Agent 2"])
-    token = token_generator.get_token()
-    ```
-    """
-
-    def __init__(self, supported_user_agents):
-        """
-        Initialize TokenGenerator.
-
-        Args:
-        - supported_user_agents: List of supported user agent strings.
-        """
-        current_directory = os.path.dirname(os.path.abspath(__file__))
-        self.html_file_path = f"file:///{current_directory}/token.html"
+    def __init__(self, supported_user_agents: list[str]):
         self.supported_user_agents = supported_user_agents
-        self.default_locale = DEFAULT_LOCALE
-        self.default_timezone_id = DEFAULT_TIMEZONE_ID
-        self._jobs = queue.Queue()
-        self._worker = None
-        self._playwright = None
-        self._browser = None
-        self._served = 0
-        self._worker_lock = threading.Lock()
+        self.default_locale = "en-GB"
+        self.default_timezone_id = "Europe/London"
+        self.path = Path(__file__).with_name("token.html").resolve().as_uri()
+        self._lock = asyncio.Lock()
+        self._shutdown = asyncio.Event()
         self._closed = False
-        self._closed_event = threading.Event()
-        self._generation = 0
-        self._current = None  # (future, started_at) of the job being processed
-        self._driver_pid = None
-        self._watchdog = None
+        self._session: _BrowserSession | None = None
+        self._requests: set[asyncio.Task] = set()
+        self._close_task: asyncio.Task | None = None
 
-    def _ensure_worker_locked(self):
-        if self._worker is None or not self._worker.is_alive():
-            self._start_worker_locked()
-        if self._watchdog is None or not self._watchdog.is_alive():
-            self._watchdog = threading.Thread(
-                target=self._watchdog_loop, name="token-watchdog", daemon=True
-            )
-            self._watchdog.start()
-
-    def _start_worker_locked(self):
-        self._worker = threading.Thread(
-            target=self._worker_loop,
-            args=(self._generation,),
-            name="token-worker",
-            daemon=True,
-        )
-        self._worker.start()
-
-    def get_token(
+    async def get_token(
         self,
-        user_agent: str = None,
-        locale: str = None,
-        timezone_id: str = None,
-    ):
-        """
-        Generate a fresh blackbox token.
-
-        Requests are queued and served one at a time by a worker thread that
-        keeps a single browser open, which prevents uvloop race conditions
-        when multiple requests arrive concurrently. When no
-        user_agent is provided, a random one from the supported list is used.
-        Empty locale and timezone values fall back to configured defaults.
-
-        Args:
-        - user_agent (str, optional): The user agent string to use for the browser.
-        - locale (str, optional): Browser locale to use for token generation.
-        - timezone_id (str, optional): Browser timezone to use for token generation.
-
-        Returns:
-        - str: The generated token.
-        """
-        effective_ua = user_agent if user_agent else random.choice(self.supported_user_agents)
-        effective_locale = locale if locale else self.default_locale
-        effective_timezone_id = (
-            timezone_id if timezone_id else self.default_timezone_id
-        )
-
-        future = Future()
-        with self._worker_lock:
-            if self._closed:
-                raise RuntimeError("TokenGenerator is closed")
-            self._ensure_worker_locked()
-            self._jobs.put(
-                (future, effective_ua, effective_locale, effective_timezone_id)
+        user_agent: str | None = None,
+        locale: str | None = None,
+        timezone_id: str | None = None,
+    ) -> str:
+        if self._closed:
+            raise RuntimeError("Token generator is closed")
+        task = asyncio.create_task(
+            self._serve_token(
+                user_agent or random.choice(self.supported_user_agents),
+                locale or self.default_locale,
+                timezone_id or self.default_timezone_id,
             )
-        return future.result()
+        )
+        self._requests.add(task)
+        task.add_done_callback(self._requests.discard)
+        task.add_done_callback(_consume_result)
+        # Cancelling a request must not cancel Playwright halfway through a call
+        # or release the lock while its context is still in use.
+        return await asyncio.shield(task)
 
-    def close(self, timeout: float = 30):
-        """
-        Stop the worker thread and release the browser and Playwright.
-
-        Requests already queued are still served first; new requests are
-        rejected. If the worker does not stop within `timeout` seconds (for
-        example because it is stuck inside Playwright), the request in progress
-        and any queued ones are failed so no caller waits forever. Safe to call
-        more than once.
-        """
-        with self._worker_lock:
+    async def _serve_token(self, user_agent, locale, timezone_id) -> str:
+        async with self._lock:
             if self._closed:
-                return
-            self._closed = True
-            worker = self._worker
-            if worker is not None and worker.is_alive():
-                self._jobs.put(_STOP)
-        if worker is not None:
-            worker.join(timeout)
-        # The watchdog cannot replace a worker once the generator is closed, so
-        # a worker still stuck at this point is handled by _fail_pending().
-        self._closed_event.set()
-        if worker is not None and worker.is_alive():
-            self._fail_pending("TokenGenerator closed while a token was running")
-
-    def _fail_pending(self, reason):
-        """Abandon a worker that did not stop and fail every pending request."""
-        logger.error("Token worker did not stop on close; failing pending requests")
-        with self._worker_lock:
-            self._generation += 1  # the stuck worker must not touch anything else
-            current, self._current = self._current, None
-            self._kill_driver()
-            self._browser = None
-            self._playwright = None
-        if current is not None:
-            _set_exception(current[0], RuntimeError(reason))
-        while True:
-            try:
-                job = self._jobs.get_nowait()
-            except queue.Empty:
-                break
-            if job is not _STOP:
-                _set_exception(job[0], RuntimeError(reason))
-
-    def _worker_loop(self, generation):
-        """Serve queued token requests, keeping one browser open between them."""
-        try:
-            while generation == self._generation:
-                job = self._jobs.get()
-                if job is _STOP:
-                    break
-                future, user_agent, locale, timezone_id = job
-                if not future.set_running_or_notify_cancel():
-                    continue
-                self._current = (future, time.monotonic())
-                try:
-                    token = self._generate_token(user_agent, locale, timezone_id)
-                except BaseException as exc:
-                    with self._worker_lock:
-                        if generation != self._generation:
-                            return  # abandoned by the watchdog; its state is gone
-                        # Do not reuse a browser or driver that may be in a bad
-                        # state. Closing a browser whose driver died can block
-                        # forever, so instead of cleaning up in this thread the
-                        # driver is killed and a fresh worker takes over.
-                        self._replace_worker_locked()
-                    _set_exception(future, exc)
-                    return
-                else:
-                    if generation != self._generation:
-                        return
-                    self._current = None
-                    _set_result(future, token)
-        finally:
-            if generation == self._generation:
-                self._reset()
-
-    def _watchdog_loop(self):
-        """Recover from a worker blocked inside a Playwright call."""
-        while not self._closed_event.wait(1.0):
-            # Never let an unexpected error stop the watchdog: without it a
-            # stuck token would leave its caller waiting forever.
-            try:
-                self._check_current_job()
-            except Exception:
-                logger.exception("Token watchdog check failed")
-
-    def _check_current_job(self):
-        current = self._current
-        if current is None:
-            return
-        elapsed = time.monotonic() - current[1]
-        if elapsed > settings.TOKEN_JOB_TIMEOUT:
-            self._abandon_worker(current, f"exceeded {settings.TOKEN_JOB_TIMEOUT}s")
-        elif elapsed > 1 and not _process_alive(self._driver_pid):
-            # A dead driver never answers, so there is no point in waiting.
-            self._abandon_worker(current, "driver process died")
-
-    def _abandon_worker(self, current, reason):
-        with self._worker_lock:
-            if self._closed or self._current is not current:
-                return
-            logger.error("Token generation failed (%s); restarting the browser worker", reason)
-            self._replace_worker_locked()
-        _set_exception(
-            current[0], TimeoutError(f"Token generation failed: {reason}")
-        )
-
-    def _replace_worker_locked(self):
-        """Kill the driver, forget this worker's state and start a fresh worker.
-
-        The previous worker thread may be blocked inside Playwright forever; it
-        is left behind (it is a daemon thread) and ignores everything from now
-        on because its generation is stale. Queued requests are picked up by
-        the new worker.
-        """
-        self._generation += 1
-        self._current = None
-        self._kill_driver()
-        self._browser = None
-        self._playwright = None
-        self._served = 0
-        self._start_worker_locked()
-
-    def _kill_driver(self):
-        pid, self._driver_pid = self._driver_pid, None
-        if pid is None:
-            return
-        try:
-            # Windows has no SIGKILL; os.kill() terminates the process there.
-            os.kill(pid, getattr(signal, "SIGKILL", signal.SIGTERM))
-        except OSError:
-            pass
-
-    def _reset(self):
-        """Close the browser and stop the Playwright driver; both are recreated on demand."""
-        self._close_browser()
-        playwright, self._playwright = self._playwright, None
-        self._driver_pid = None
-        if playwright is not None:
-            try:
-                playwright.stop()
-            except Exception:
-                logger.exception("Error stopping Playwright")
-
-    def _get_browser(self):
-        """Return the shared browser, (re)launching it when needed. Worker thread only."""
-        if self._browser is not None and self._served >= settings.BROWSER_RECYCLE_AFTER:
-            self._close_browser()
-        if self._browser is not None and not self._browser.is_connected():
-            self._close_browser()
-        if self._browser is None:
-            if self._playwright is None:
-                self._playwright = sync_playwright().start()
-                self._driver_pid = _driver_pid(self._playwright)
-            self._browser = self._playwright.chromium.launch(
-                headless=settings.PLAYWRIGHT_HEADLESS,
-                args=[
-                    '--no-sandbox',
-                    '--disable-setuid-sandbox',
-                ]
+                raise RuntimeError("Token generator is closed")
+            if self._session is None:
+                self._session = _BrowserSession()
+            session = self._session
+            generation = asyncio.create_task(
+                self._generate_token(session, user_agent, locale, timezone_id)
             )
-            self._served = 0
-        return self._browser
+            shutdown = asyncio.create_task(self._shutdown.wait())
+            try:
+                done, _ = await asyncio.wait(
+                    {generation, shutdown}, timeout=settings.TOKEN_GENERATION_TIMEOUT_SECONDS,
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
+                if generation in done:
+                    return generation.result()
+                if self._closed:
+                    raise RuntimeError("Token generator is closing")
+                raise TimeoutError("Token generation timed out")
+            except Exception:
+                self._session = None
+                stopped = await session.close()
+                finished = await _settle(generation)
+                if not stopped or not finished:
+                    # Do not accumulate abandoned drivers or overlap generations.
+                    self._closed = True
+                    logger.error("Token generator could not stop; restart the API")
+                raise
+            finally:
+                shutdown.cancel()
+                await asyncio.gather(shutdown, return_exceptions=True)
 
-    def _close_browser(self):
-        browser, self._browser = self._browser, None
-        if browser is None:
-            return
-        try:
-            browser.close()
-        except Exception:
-            logger.exception("Error closing browser")
-
-    def _generate_token(self, user_agent: str, locale: str, timezone_id: str):
-        """
-        Generate a fresh token in a new context of the shared browser.
-        Must run on the worker thread.
-
-        Args:
-        - user_agent (str): The user agent string to use for the browser.
-        - locale (str): The browser locale to use.
-        - timezone_id (str): The browser timezone to use.
-
-        Returns:
-        - str: The generated token.
-        """
-        browser = self._get_browser()
-        context = browser.new_context(
-            user_agent=user_agent,
-            locale=locale,
-            timezone_id=timezone_id,
+    async def _generate_token(self, session, user_agent, locale, timezone_id) -> str:
+        browser = await session.get_browser()
+        context = await browser.new_context(
+            user_agent=user_agent, locale=locale, timezone_id=timezone_id,
         )
         try:
-            page = context.new_page()
-            page.goto(self.html_file_path)
-            token_element = page.wait_for_selector("body > div")
-            token = token_element.inner_text()
+            context.set_default_timeout(settings.TOKEN_GENERATION_TIMEOUT_SECONDS * 1000)
+            page = await context.new_page()
+            await page.goto(self.path)
+            await page.wait_for_selector("body > div")
+            token = await page.inner_text("body > div")
         finally:
-            context.close()
-        self._served += 1
+            await context.close()
         return token
 
+    async def close(self) -> None:
+        if self._close_task is None:
+            self._closed = True
+            self._shutdown.set()
+            self._close_task = asyncio.create_task(self._close())
+        await asyncio.shield(self._close_task)
 
-# The worker, the watchdog and close() can race to complete the same future;
-# whoever comes second must not fail.
-def _set_result(future, value):
-    try:
-        future.set_result(value)
-    except InvalidStateError:
-        pass
-
-
-def _set_exception(future, exc):
-    try:
-        future.set_exception(exc)
-    except InvalidStateError:
-        pass
-
-
-def _driver_pid(playwright):
-    """PID of the Playwright driver process, or None if it cannot be found."""
-    try:
-        return playwright._impl_obj._connection._transport._proc.pid
-    except AttributeError:
-        return None
-
-
-def _process_alive(pid):
-    """False only when `pid` is known to be gone (or a zombie). Linux only."""
-    if pid is None:
-        return True
-    try:
-        with open(f"/proc/{pid}/stat") as f:
-            return f.read().rsplit(")", 1)[1].split()[0] != "Z"
-    except FileNotFoundError:
-        return not os.path.isdir("/proc")
-    except (OSError, IndexError):
-        return True
+    async def _close(self) -> None:
+        # Active generation observes shutdown; queued callers reject under the
+        # same lock, so none can start a browser after application shutdown.
+        if self._requests:
+            await asyncio.gather(*self._requests, return_exceptions=True)
+        if self._session is not None:
+            session, self._session = self._session, None
+            if not await session.close():
+                logger.error("Playwright did not shut down cleanly")

@@ -1,313 +1,267 @@
-import json
-import os
+import asyncio
+import importlib
 import signal
 import sys
-import threading
-import time
-from concurrent.futures import Future
+from unittest.mock import AsyncMock, Mock
 
 import pytest
+import pytest_asyncio
 
 import settings
-from apps.token.TokenGenerator import TokenGenerator, _set_exception, _set_result
+from apps.token import supported_user_agents
+from apps.token.TokenGenerator import TokenGenerator
 from tests.token_validator import verify_token_format
 
-
-@pytest.fixture
-def token_generator():
-    json_file_path = os.path.abspath(
-        os.path.join(
-            os.path.dirname(__file__), "..", "apps", "token", "SupportedUserAgents.json"
-        )
-    )
-    supported_user_agents = json.load(open(json_file_path))
-    token_generator = TokenGenerator(
-        supported_user_agents=supported_user_agents,
-    )
-    yield token_generator
-    token_generator.close()
+pytestmark = pytest.mark.asyncio
 
 
-def test_get_token_returns_unique_tokens(token_generator):
-    tokens = [token_generator.get_token() for _ in range(5)]
-    assert len(set(tokens)) == len(tokens), "Tokens should be unique"
+@pytest_asyncio.fixture
+async def token_generator():
+    generator = TokenGenerator(supported_user_agents)
+    yield generator
+    await generator.close()
 
 
-def test_get_token_returns_unique_tokens_with_specific_user_agent(token_generator):
-    tokens = [
-        token_generator.get_token(
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3"
-        )
-        for _ in range(5)
-    ]
-    assert len(set(tokens)) == len(tokens), "Tokens should be unique"
+@pytest.mark.parametrize("user_agent", [None, "", supported_user_agents[0]])
+async def test_get_token_returns_unique_valid_tokens(token_generator, user_agent):
+    tokens = [await token_generator.get_token(user_agent) for _ in range(5)]
+    assert len(set(tokens)) == len(tokens)
+    for token in tokens:
+        verify_token_format(token)
 
 
-def test_get_token_returns_valid_token(token_generator):
-    token = token_generator.get_token()
-    verify_token_format(token)
+@pytest.mark.parametrize(
+    "params, expected",
+    [({}, ("en-GB", "Europe/London")),
+     ({"locale": "es-ES", "timezone_id": "Europe/Madrid"},
+      ("es-ES", "Europe/Madrid"))],
+)
+async def test_get_token_passes_context_parameters(token_generator, params, expected):
+    captured = []
+
+    async def generate(session, user_agent, locale, timezone_id):
+        captured.append((user_agent, locale, timezone_id))
+        return "token"
+
+    token_generator._generate_token = generate
+    assert await token_generator.get_token("Test User Agent", **params) == "token"
+    assert captured == [("Test User Agent", *expected)]
 
 
-def test_get_token_returns_valid_token_with_specific_user_agent(token_generator):
-    token = token_generator.get_token(
-        user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3"
-    )
-    verify_token_format(token)
-
-
-def test_get_token_returns_valid_token_with_empty_user_agent(token_generator):
-    token = token_generator.get_token(user_agent="")
-    verify_token_format(token)
-
-
-def test_get_token_passes_locale_and_timezone_to_generator(token_generator):
-    captured = {}
-
-    def fake_generate_token(user_agent, locale, timezone_id):
-        captured["user_agent"] = user_agent
-        captured["locale"] = locale
-        captured["timezone_id"] = timezone_id
-        return "ValidToken123"
-
-    token_generator._generate_token = fake_generate_token
-
-    token = token_generator.get_token(
-        user_agent="Test User Agent",
-        locale="es-ES",
-        timezone_id="Europe/Madrid",
-    )
-
-    assert token == "ValidToken123"
-    assert captured == {
-        "user_agent": "Test User Agent",
-        "locale": "es-ES",
-        "timezone_id": "Europe/Madrid",
-    }
-
-
-def test_get_token_uses_default_locale_and_timezone(token_generator):
-    captured = {}
-
-    def fake_generate_token(user_agent, locale, timezone_id):
-        captured["locale"] = locale
-        captured["timezone_id"] = timezone_id
-        return "ValidToken123"
-
-    token_generator._generate_token = fake_generate_token
-
-    token = token_generator.get_token(user_agent="Test User Agent")
-
-    assert token == "ValidToken123"
-    assert captured == {
-        "locale": "en-GB",
-        "timezone_id": "Europe/London",
-    }
-
-
-def test_get_token_reuses_browser_with_a_fresh_context_per_token(token_generator):
-    token_generator.get_token()
-    browser = token_generator._browser
-    assert browser is not None
-
+async def test_reuses_browser_with_a_fresh_context_per_token(token_generator):
+    await token_generator.get_token()
+    browser = token_generator._session.browser
     contexts = []
     original_new_context = browser.new_context
 
-    def spy_new_context(**kwargs):
-        contexts.append(kwargs)
-        return original_new_context(**kwargs)
+    async def new_context(**kwargs):
+        context = await original_new_context(**kwargs)
+        assert await context.cookies() == []
+        await context.add_cookies([{
+            "name": "previous-token", "value": "secret", "url": "https://example.com",
+        }])
+        contexts.append((context, kwargs))
+        return context
 
-    browser.new_context = spy_new_context
-
-    first_ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3"
-    second_ua = token_generator.supported_user_agents[0]
-    first = token_generator.get_token(
-        user_agent=first_ua, locale="es-AR", timezone_id="America/Argentina/Buenos_Aires"
+    browser.new_context = new_context
+    first = await token_generator.get_token(
+        supported_user_agents[0], locale="es-AR",
+        timezone_id="America/Argentina/Buenos_Aires",
     )
-    second = token_generator.get_token(
-        user_agent=second_ua, locale="en-GB", timezone_id="Europe/London"
-    )
-
-    assert token_generator._browser is browser, "Browser should be reused"
+    second = await token_generator.get_token(supported_user_agents[1])
     assert first != second
-    assert contexts == [
-        {"user_agent": first_ua, "locale": "es-AR", "timezone_id": "America/Argentina/Buenos_Aires"},
-        {"user_agent": second_ua, "locale": "en-GB", "timezone_id": "Europe/London"},
+    assert token_generator._session.browser is browser
+    assert len(contexts) == 2 and contexts[0][0] is not contexts[1][0]
+    assert [kwargs for _, kwargs in contexts] == [
+        {"user_agent": supported_user_agents[0], "locale": "es-AR",
+         "timezone_id": "America/Argentina/Buenos_Aires"},
+        {"user_agent": supported_user_agents[1], "locale": "en-GB",
+         "timezone_id": "Europe/London"},
     ]
+    assert browser.contexts == []
 
 
-def test_get_token_relaunches_browser_after_recycle_limit(token_generator):
-    token_generator.get_token()
-    browser = token_generator._browser
-    token_generator._served = settings.BROWSER_RECYCLE_AFTER
+async def test_recovers_after_a_failed_token(token_generator):
+    await token_generator.get_token()
+    session = token_generator._session
 
-    verify_token_format(token_generator.get_token())
-
-    assert token_generator._browser is not browser, "Browser should be relaunched"
-
-
-def test_get_token_recovers_after_a_failed_token(token_generator):
-    token_generator.get_token()
-    browser = token_generator._browser
-
-    def broken_new_context(**kwargs):
+    async def broken_new_context(**kwargs):
         raise RuntimeError("boom")
 
-    browser.new_context = broken_new_context
-    with pytest.raises(RuntimeError):
-        token_generator.get_token()
-
-    verify_token_format(token_generator.get_token())
-    assert token_generator._browser is not browser
-
-
-def test_close_stops_the_worker_and_rejects_new_requests(token_generator):
-    token_generator.get_token()
-    worker = token_generator._worker
-    assert worker.is_alive()
-
-    token_generator.close()
-
-    assert not worker.is_alive()
-    assert token_generator._browser is None
-    assert token_generator._playwright is None
-    with pytest.raises(RuntimeError):
-        token_generator.get_token()
-    token_generator.close()  # closing twice is harmless
+    session.browser.new_context = broken_new_context
+    with pytest.raises(RuntimeError, match="boom"):
+        await token_generator.get_token()
+    verify_token_format(await token_generator.get_token())
+    assert token_generator._session is not session
 
 
-def _playwright_driver_pids():
-    pids = []
-    for entry in os.listdir("/proc"):
-        if not entry.isdigit():
-            continue
-        try:
-            with open(f"/proc/{entry}/stat") as f:
-                ppid = int(f.read().rsplit(")", 1)[1].split()[1])
-            with open(f"/proc/{entry}/cmdline", "rb") as f:
-                cmdline = f.read()
-        except (OSError, ValueError, IndexError):
-            continue
-        if ppid == os.getpid() and b"run-driver" in cmdline:
-            pids.append(int(entry))
-    return pids
+async def test_recovers_after_browser_disconnects(token_generator):
+    await token_generator.get_token()
+    browser = token_generator._session.browser
+    await browser.close()
+    verify_token_format(await token_generator.get_token())
+    assert token_generator._session.browser is not browser
 
 
-@pytest.mark.skipif(
-    not sys.platform.startswith("linux"), reason="needs /proc to find the driver"
-)
-def test_get_token_recovers_after_the_playwright_driver_dies(token_generator):
-    token_generator.get_token()
-    driver_pids = _playwright_driver_pids()
-    assert driver_pids, "Playwright driver process not found"
-    for pid in driver_pids:
-        os.kill(pid, signal.SIGKILL)
+def driver_process(generator):
+    return generator._session._manager._connection._transport._proc
 
-    # The request that hits the dead driver may fail, but the generator must
-    # not stay stuck: the next one has to work with a fresh driver.
+
+async def test_recovers_after_the_driver_dies(token_generator):
+    await token_generator.get_token()
+    process = driver_process(token_generator)
+    process.kill()
+    await process.wait()
     try:
-        token = token_generator.get_token()
+        token = await asyncio.wait_for(token_generator.get_token(), 15)
     except Exception:
-        token = token_generator.get_token()
-
+        token = await asyncio.wait_for(token_generator.get_token(), 15)
     verify_token_format(token)
+    assert driver_process(token_generator) is not process
 
 
-def test_a_stuck_token_is_failed_and_the_worker_is_replaced(
-    token_generator, monkeypatch
-):
-    monkeypatch.setattr(settings, "TOKEN_JOB_TIMEOUT", 2)
-    original_generate_token = token_generator._generate_token
-    release = threading.Event()
-    calls = []
+async def block_first_token(generator, monkeypatch):
+    """Block a real Playwright RPC until its browser/driver is closed."""
+    original = generator._generate_token
+    started = asyncio.Event()
+    pages = []
 
-    def generate_token(user_agent, locale, timezone_id):
-        calls.append(1)
-        if len(calls) == 1:
-            release.wait(30)  # simulates a Playwright call that never returns
-            raise RuntimeError("released")
-        return original_generate_token(user_agent, locale, timezone_id)
+    async def generate(session, user_agent, locale, timezone_id):
+        if pages:
+            return await original(session, user_agent, locale, timezone_id)
+        # The first request already captured its deadline. Give the subsequent
+        # cold restart enough time, including on slow CI machines.
+        monkeypatch.setattr(settings, "TOKEN_GENERATION_TIMEOUT_SECONDS", 120)
+        browser = await session.get_browser()
+        context = await browser.new_context()
+        try:
+            page = await context.new_page()
+            pages.append(page)
+            await page.evaluate("window.blocked = false")
+            started.set()
+            await page.evaluate("() => new Promise(resolve => { window.blocked = true; window.releaseToken = resolve; })")
+            return "released-token"
+        finally:
+            await context.close()
 
-    token_generator._generate_token = generate_token
+    monkeypatch.setattr(generator, "_generate_token", generate)
+    return started, pages
+
+
+async def wait_for_blocked_page(started, pages):
+    await asyncio.wait_for(started.wait(), 10)
+    await pages[0].wait_for_function("window.blocked === true")
+
+
+async def test_timeout_does_not_lose_queued_requests(token_generator, monkeypatch):
+    await token_generator.get_token()
+    old_session = token_generator._session
+    started, pages = await block_first_token(token_generator, monkeypatch)
+    monkeypatch.setattr(settings, "TOKEN_GENERATION_TIMEOUT_SECONDS", 1)
+    first = asyncio.create_task(token_generator.get_token())
+    await wait_for_blocked_page(started, pages)
+    queued = [asyncio.create_task(token_generator.get_token()) for _ in range(2)]
+    with pytest.raises(TimeoutError):
+        await asyncio.wait_for(first, 15)
+    tokens = await asyncio.wait_for(asyncio.gather(*queued), 15)
+    for token in tokens:
+        verify_token_format(token)
+    assert len(set(tokens)) == 2
+    assert token_generator._session is not old_session
+
+
+async def test_recovers_when_driver_dies_during_token(token_generator, monkeypatch):
+    await token_generator.get_token()
+    started, pages = await block_first_token(token_generator, monkeypatch)
+    request = asyncio.create_task(token_generator.get_token())
+    await wait_for_blocked_page(started, pages)
+    driver_process(token_generator).kill()
+    with pytest.raises(Exception):
+        await asyncio.wait_for(request, 15)
+    verify_token_format(await token_generator.get_token())
+
+
+@pytest.mark.skipif(not sys.platform.startswith("linux"), reason="requires SIGSTOP")
+async def test_timeout_recovers_from_frozen_driver(token_generator, monkeypatch):
+    await token_generator.get_token()
+    started, pages = await block_first_token(token_generator, monkeypatch)
+    monkeypatch.setattr(settings, "TOKEN_GENERATION_TIMEOUT_SECONDS", 1)
+    request = asyncio.create_task(token_generator.get_token())
+    await wait_for_blocked_page(started, pages)
+    process = driver_process(token_generator)
+    process.send_signal(signal.SIGSTOP)
     try:
-        started = time.monotonic()
         with pytest.raises(TimeoutError):
-            token_generator.get_token()
-        assert time.monotonic() - started < 10
-
-        # A cold browser start is slower than the short limit used above.
-        monkeypatch.setattr(settings, "TOKEN_JOB_TIMEOUT", 120)
-        verify_token_format(token_generator.get_token())
+            await asyncio.wait_for(request, 25)
+        assert process.returncode is not None
+        verify_token_format(await token_generator.get_token())
     finally:
-        release.set()
+        if process.returncode is None:
+            process.kill()
 
 
-@pytest.mark.skipif(
-    not sys.platform.startswith("linux"), reason="needs /proc to find the driver"
-)
-def test_get_token_recovers_when_the_driver_dies_during_a_token(
-    token_generator, monkeypatch
-):
-    # The long limit proves recovery comes from noticing the dead driver, not
-    # from waiting for the timeout.
-    monkeypatch.setattr(settings, "TOKEN_JOB_TIMEOUT", 120)
-    token_generator.get_token()  # warm browser, so the next token is quick
-
-    outcome = {}
-
-    def request():
-        try:
-            outcome["token"] = token_generator.get_token()
-        except Exception as exc:
-            outcome["error"] = exc
-
-    thread = threading.Thread(target=request)
-    thread.start()
-    time.sleep(0.3)
-    for pid in _playwright_driver_pids():
-        os.kill(pid, signal.SIGKILL)
-    thread.join(20)
-
-    assert not thread.is_alive(), "The request must not hang"
-    verify_token_format(token_generator.get_token())
+async def test_cancelling_request_keeps_browser_serialized(token_generator, monkeypatch):
+    await token_generator.get_token()
+    started, pages = await block_first_token(token_generator, monkeypatch)
+    first = asyncio.create_task(token_generator.get_token())
+    await wait_for_blocked_page(started, pages)
+    first.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await first
+    second = asyncio.create_task(token_generator.get_token())
+    await asyncio.sleep(0.05)
+    assert not second.done()
+    assert len(token_generator._session.browser.contexts) == 1
+    await pages[0].evaluate("window.releaseToken()")
+    verify_token_format(await asyncio.wait_for(second, 15))
+    assert token_generator._session.browser.contexts == []
 
 
-def test_close_fails_pending_requests_when_the_worker_is_stuck(token_generator):
-    release = threading.Event()
-
-    def stuck_generate_token(user_agent, locale, timezone_id):
-        release.wait(30)  # simulates a Playwright call that never returns
-        raise RuntimeError("released")
-
-    token_generator._generate_token = stuck_generate_token
-    outcomes = []
-
-    def request():
-        try:
-            outcomes.append(token_generator.get_token())
-        except Exception as exc:
-            outcomes.append(exc)
-
-    threads = [threading.Thread(target=request) for _ in range(2)]
-    try:
-        for thread in threads:
-            thread.start()
-            time.sleep(0.2)  # the first one runs, the second one waits in the queue
-
-        token_generator.close(timeout=1)
-        for thread in threads:
-            thread.join(10)
-
-        assert not any(thread.is_alive() for thread in threads), "Callers must not hang"
-        assert len(outcomes) == 2
-        assert all(isinstance(outcome, RuntimeError) for outcome in outcomes)
-    finally:
-        release.set()
+async def test_close_fails_active_and_queued_requests(token_generator, monkeypatch):
+    await token_generator.get_token()
+    process = driver_process(token_generator)
+    started, pages = await block_first_token(token_generator, monkeypatch)
+    first = asyncio.create_task(token_generator.get_token())
+    await wait_for_blocked_page(started, pages)
+    queued = asyncio.create_task(token_generator.get_token())
+    await asyncio.wait_for(token_generator.close(), 15)
+    results = await asyncio.gather(first, queued, return_exceptions=True)
+    assert all(isinstance(result, RuntimeError) for result in results)
+    assert not token_generator._requests
+    assert process.returncode is not None
+    await token_generator.close()
+    with pytest.raises(RuntimeError, match="closed"):
+        await token_generator.get_token()
 
 
-def test_completing_a_future_twice_does_not_raise():
-    # The worker, the watchdog and close() may race to complete the same future.
-    future = Future()
-    _set_result(future, "token")
-    _set_exception(future, RuntimeError("late"))
-    _set_result(future, "other")
-    assert future.result() == "token"
+async def test_parallel_requests_are_unique_and_leave_no_contexts(token_generator):
+    tokens = await asyncio.gather(*(token_generator.get_token() for _ in range(8)))
+    assert len(set(tokens)) == 8
+    for token in tokens:
+        verify_token_format(token)
+    assert token_generator._session.browser.contexts == []
+
+
+async def test_late_launch_is_closed_before_replacement(token_generator, monkeypatch):
+    module = importlib.import_module("apps.token.TokenGenerator")
+    original_playwright = module.async_playwright
+    release = asyncio.Event()
+    browser = Mock(close=AsyncMock())
+
+    async def late_launch(**kwargs):
+        await release.wait()
+        return browser
+
+    playwright = Mock(chromium=Mock(launch=late_launch))
+    manager = Mock(start=AsyncMock(return_value=playwright))
+    manager.__aexit__ = AsyncMock(side_effect=lambda: release.set())
+    monkeypatch.setattr(module, "async_playwright", lambda: manager)
+    monkeypatch.setattr(settings, "TOKEN_GENERATION_TIMEOUT_SECONDS", 0.05)
+    with pytest.raises(TimeoutError):
+        await token_generator.get_token()
+    browser.close.assert_awaited_once()
+    assert token_generator._session is None
+    assert not token_generator._closed
+    monkeypatch.setattr(module, "async_playwright", original_playwright)
+    monkeypatch.setattr(settings, "TOKEN_GENERATION_TIMEOUT_SECONDS", 120)
+    verify_token_format(await token_generator.get_token())
