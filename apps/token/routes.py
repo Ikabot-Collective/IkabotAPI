@@ -1,15 +1,13 @@
-import logging
 import re
-import time
 from typing import Annotated
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 from apps.token import (
     logger,
     supported_user_agents,
-    token_generator,
 )
+from apps.token.TokenGenerator import TokenGenerator
 
 router = APIRouter()
 
@@ -35,8 +33,13 @@ def _normalize_context_param(
     return value
 
 
+async def get_token_generator(request: Request) -> TokenGenerator:
+    return request.app.state.token_generator
+
+
 @router.get("/v1/token")
-def v1_token_route(
+async def v1_token_route(
+    token_generator: Annotated[TokenGenerator, Depends(get_token_generator)],
     user_agent: Annotated[
         str | None, Query(description="User agent string for token generation")
     ] = None,
@@ -49,7 +52,6 @@ def v1_token_route(
 ):
     """
     Generate a Blackbox token for the specified user agent.
-    NOTE: Synchronous to avoid conflicts with sync Playwright code
 
     Args:
         user_agent: The user agent string to generate a token for (optional)
@@ -84,18 +86,15 @@ def v1_token_route(
             "timezone_id",
         )
 
-        start_time = time.time()
-        token_string = token_generator.get_token(
+        token_string = await token_generator.get_token(
             user_agent,
             effective_locale,
             effective_timezone_id,
         )
-        processing_time = time.time() - start_time
-
         return token_string
     except HTTPException:
         raise
-    except Exception as e:
+    except Exception:
         logger.exception("Error in v1_token route")
         raise HTTPException(
             status_code=500, detail="An error occurred during token generation"
