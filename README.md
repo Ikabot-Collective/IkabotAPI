@@ -186,12 +186,24 @@ The API can be configured with environment variables.
 
 You can enable logging to a Discord channel by setting the `LOGS_WEBHOOK_URL` environment variable.
 
+IP addresses are hidden in the messages sent to Discord by default, so users' IPs are never posted to the
+channel. Only the Discord copy is masked: the console and server logs keep the full message. Set
+`LOGS_WEBHOOK_HIDE_IPS=false` to send them unmasked.
+
 Example `.env.example`:
 
 ```env
 # The Webhook URL of a Discord channel for logs (optional)
 LOGS_WEBHOOK_URL=
+
+# Hide IP addresses in the logs sent to Discord (default: true). Set to "false" to show them.
+LOGS_WEBHOOK_HIDE_IPS=true
 ```
+
+| Variable | Default | Description |
+|---|---|---|
+| `LOGS_WEBHOOK_URL` | (empty) | Discord webhook URL; logging to Discord is disabled when empty |
+| `LOGS_WEBHOOK_HIDE_IPS` | `true` | Replace IPv4/IPv6 addresses with `x.x.x.x` in Discord messages. Only `false` shows them |
 
 Options to set it:
 
