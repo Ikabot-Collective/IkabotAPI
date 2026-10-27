@@ -8,6 +8,7 @@ services:
       - web_network
     environment:
       - LOGS_WEBHOOK_URL
+      - LOGS_WEBHOOK_HIDE_IPS
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:5005/health"]
       interval: 30s

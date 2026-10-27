@@ -1,4 +1,5 @@
 import logging
+import re
 from contextlib import asynccontextmanager
 
 import coloredlogs
@@ -16,6 +17,20 @@ from apps.token.TokenGenerator import TokenGenerator
 from apps.token.routes import router as token_router
 
 logger = logging.getLogger(__name__)
+
+
+# IPv4 and IPv6 addresses, masked in the logs sent to Discord.
+_IP_ADDRESS = re.compile(
+    r"\b(?:\d{1,3}\.){3}\d{1,3}\b"
+    r"|\b(?:[0-9a-fA-F]{0,4}:){3,7}[0-9a-fA-F]{1,4}\b"
+)
+
+
+class HideIPsFormatter(logging.Formatter):
+    """Mask IP addresses in the formatted text only, leaving the record intact."""
+
+    def format(self, record):
+        return _IP_ADDRESS.sub("x.x.x.x", super().format(record))
 
 
 def setup_logger():
@@ -44,8 +59,12 @@ def setup_logger():
     if settings.LOGS_WEBHOOK_URL is not None and settings.LOGS_WEBHOOK_URL != "":
         from discord_logging.handler import DiscordHandler
 
-        # Define format for logs
-        discord_format = logging.Formatter("%(name)s - %(message)s")
+        # Define format for logs. Only the Discord copy hides users' IPs; the
+        # console and server logs keep the full message.
+        formatter_class = (
+            HideIPsFormatter if settings.LOGS_WEBHOOK_HIDE_IPS else logging.Formatter
+        )
+        discord_format = formatter_class("%(name)s - %(message)s")
 
         discord_handler = DiscordHandler("Ikabot API", settings.LOGS_WEBHOOK_URL)
         discord_handler.setFormatter(discord_format)

@@ -7,6 +7,11 @@ load_dotenv()
 
 LOGS_WEBHOOK_URL = os.getenv("LOGS_WEBHOOK_URL")
 
+# Hide IP addresses in the logs sent to Discord (default: true). Only the exact
+# value "false" shows them, so a typo never exposes users' IPs by accident.
+# Console and server logs always keep the full message.
+LOGS_WEBHOOK_HIDE_IPS = os.getenv("LOGS_WEBHOOK_HIDE_IPS", "true").strip().lower() != "false"
+
 # Playwright headless mode (default: False for production with Xvfb)
 PLAYWRIGHT_HEADLESS = os.getenv("PLAYWRIGHT_HEADLESS", "false").lower() == "true"
 
