@@ -1,5 +1,5 @@
 name: Check Docker image
-description: Build without publishing and check startup, token generation, and clean shutdown.
+description: Build without publishing and check startup, token generation, clean shutdown, and restart.
 
 inputs:
   ref:
@@ -43,7 +43,7 @@ runs:
           org.opencontainers.image.revision=${{ inputs.ref }}
           org.opencontainers.image.licenses=MIT
 
-    - name: Check container startup, token generation, and shutdown
+    - name: Check container startup, token generation, shutdown, and restart
       shell: bash
       env:
         EXPECTED_VERSION: ${{ steps.version.outputs.value }}
@@ -55,25 +55,24 @@ runs:
           docker rm --force "$container" > /dev/null || true
         }
         trap cleanup EXIT
-        address=$(docker port "$container" 5005/tcp)
-        healthy=false
-        for attempt in $(seq 1 60); do
-          if [[ "$(docker inspect --format '{{.State.Running}}' "$container")" != 'true' ]]; then
-            echo "::error::The Docker container exited before becoming healthy."
-            exit 1
-          fi
-          if curl --fail --silent --max-time 2 "http://$address/health" > "$RUNNER_TEMP/docker-health.json"; then
-            jq --exit-status --arg version "$EXPECTED_VERSION" \
-              '.status == "healthy" and .version == $version' "$RUNNER_TEMP/docker-health.json"
-            healthy=true
-            break
-          fi
-          sleep 2
-        done
-        if [[ "$healthy" != 'true' ]]; then
+        wait_until_healthy() {
+          address=$(docker port "$container" 5005/tcp)
+          for attempt in $(seq 1 60); do
+            if [[ "$(docker inspect --format '{{.State.Running}}' "$container")" != 'true' ]]; then
+              echo "::error::The Docker container exited before becoming healthy."
+              exit 1
+            fi
+            if curl --fail --silent --max-time 2 "http://$address/health" > "$RUNNER_TEMP/docker-health.json"; then
+              jq --exit-status --arg version "$EXPECTED_VERSION" \
+                '.status == "healthy" and .version == $version' "$RUNNER_TEMP/docker-health.json"
+              return
+            fi
+            sleep 2
+          done
           echo "::error::The Docker container did not become healthy in time."
           exit 1
-        fi
+        }
+        wait_until_healthy
         curl --fail --silent --show-error --max-time 150 \
           "http://$address/v1/token" > "$RUNNER_TEMP/docker-token.json"
         jq --exit-status 'type == "string" and length > 0' "$RUNNER_TEMP/docker-token.json"
@@ -82,3 +81,7 @@ runs:
           echo "::error::The Docker container did not shut down cleanly."
           exit 1
         fi
+        # Restarting reuses the container filesystem (like `docker restart` or a
+        # restart policy), so leftovers from the previous run must not block startup.
+        docker start "$container" > /dev/null
+        wait_until_healthy
