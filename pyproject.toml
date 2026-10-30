@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "ikabot-api"
-version = "2.2.1"
+version = "2.2.2"
 description = "API for Ikabot captcha solving and token generation"
 authors = ["Ikabot Collective"]
 readme = "README.md"
