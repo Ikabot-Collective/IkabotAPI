@@ -1,6 +1,11 @@
 #!/bin/sh
 set -eu
 
+# A restarted container keeps /tmp, so the lock of the previous Xvfb may still
+# exist. Its PID can belong to a live process after the restart, and then
+# Xvfb refuses to start. No other X server runs here, so remove the leftovers.
+rm -f /tmp/.X99-lock /tmp/.X11-unix/X99
+
 # Xvfb signals its parent with USR1 when ready (as in xvfb-run). Tini keeps
 # this shell off PID 1, then forwards TERM to Uvicorn after exec below.
 trap ':' USR1
