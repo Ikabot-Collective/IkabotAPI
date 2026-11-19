@@ -111,6 +111,11 @@ class TokenGenerator:
         self._requests: set[asyncio.Task] = set()
         self._close_task: asyncio.Task | None = None
 
+    @property
+    def closed(self) -> bool:
+        """True after shutdown, or after a failure that needs an API restart."""
+        return self._closed
+
     async def get_token(
         self,
         user_agent: str | None = None,
