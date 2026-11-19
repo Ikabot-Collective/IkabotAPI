@@ -1,5 +1,10 @@
+import asyncio
 import logging
+import logging.handlers
+import queue
 import re
+import threading
+import time
 from contextlib import asynccontextmanager
 
 import coloredlogs
@@ -33,14 +38,94 @@ class HideIPsFormatter(logging.Formatter):
         return _IP_ADDRESS.sub("x.x.x.x", super().format(record))
 
 
+# Loggers that run while a message is being sent to Discord. Forwarding their
+# records (e.g. "Webhook rate limited") would send more messages, endlessly.
+_DISCORD_INTERNAL_LOGGERS = ("discord_webhook", "discord_logging", "urllib3", "requests")
+
+
+def _is_discord_internal(record: logging.LogRecord) -> bool:
+    return any(
+        record.name == name or record.name.startswith(name + ".")
+        for name in _DISCORD_INTERNAL_LOGGERS
+    )
+
+
+class BackgroundHandler(logging.handlers.QueueHandler):
+    """Run a slow handler on a background thread.
+
+    Logging also happens on the event loop (access logs, async routes, token
+    generation). The Discord handler makes blocking HTTP requests and sleeps when
+    Discord rate limits it, which froze the loop and Playwright with it. Here a
+    log call only puts the record in a bounded queue. When the queue is full the
+    record is dropped, so a slow or unreachable Discord never blocks the API and
+    never grows memory.
+    """
+
+    def __init__(self, target: logging.Handler, maxsize: int = 1000):
+        super().__init__(queue.Queue(maxsize))
+        self.target = target
+        self.dropped = 0
+        self.setLevel(target.level)
+        self.addFilter(lambda record: not _is_discord_internal(record))
+        self._thread = threading.Thread(
+            target=self._forward, name="discord-logs", daemon=True
+        )
+        self._thread.start()
+
+    def enqueue(self, record):
+        try:
+            self.queue.put_nowait(record)
+        except queue.Full:
+            self.dropped += 1
+
+    def _forward(self):
+        while (record := self.queue.get()) is not None:
+            try:
+                self.target.handle(record)
+            except Exception:
+                self.target.handleError(record)
+
+    def close(self, timeout: float = 5):
+        """Stop the thread, giving queued records up to `timeout` seconds to be sent."""
+        if self._thread.is_alive():
+            deadline = time.monotonic() + timeout
+            try:
+                self.queue.put(None, timeout=timeout)
+            except queue.Full:
+                pass
+            self._thread.join(max(0.0, deadline - time.monotonic()))
+            if self._thread.is_alive():
+                # Discord is too slow: drop the rest, so the thread stops after
+                # the message it is sending now.
+                with self.queue.mutex:
+                    self.queue.queue.clear()
+                    self.queue.not_full.notify_all()
+                self.queue.put_nowait(None)
+        self.target.close()
+        super().close()
+
+
+_discord_logs: BackgroundHandler | None = None
+
+
+def close_discord_logs(timeout: float = 5):
+    global _discord_logs
+    handler, _discord_logs = _discord_logs, None
+    if handler is not None:
+        logging.getLogger().removeHandler(handler)
+        handler.close(timeout)
+
+
 def setup_logger():
     """
     Set up the root logger with a Discord handler and colored console output.
     This ensures all modules using logging.getLogger() will benefit from the configuration.
     """
+    global _discord_logs
     root_logger = logging.getLogger()
 
     # Clear existing handlers to avoid duplicates
+    close_discord_logs(timeout=0)
     root_logger.handlers.clear()
 
     # Install coloredlogs only on root logger
@@ -72,7 +157,9 @@ def setup_logger():
         # Send INFO and above to Discord
         discord_handler.setLevel(logging.INFO)
 
-        root_logger.addHandler(discord_handler)
+        # Never send from the calling thread: it may be the event loop.
+        _discord_logs = BackgroundHandler(discord_handler)
+        root_logger.addHandler(_discord_logs)
 
     root_logger.setLevel(logging.INFO)
 
@@ -92,6 +179,7 @@ async def lifespan(app: FastAPI):
         logger.info("Ikabot API shutting down")
         await token_generator.close()
         del app.state.token_generator
+        await asyncio.to_thread(close_discord_logs)
 
 
 app = FastAPI(

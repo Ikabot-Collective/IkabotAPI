@@ -5,11 +5,21 @@ from io import BytesIO
 from typing import Annotated
 
 from fastapi import APIRouter, File, HTTPException, UploadFile
+from starlette.concurrency import run_in_threadpool
 
 from apps.decaptcha import Captcha_detection, lock, logger
 from apps.decaptcha.lobby_captcha.image import break_interactive_captcha
 
 router = APIRouter()
+
+# The lobby route is async, so its CPU work runs in a worker thread to keep the
+# event loop free. The lock keeps solving one at a time, as before.
+lobby_lock = threading.Lock()
+
+
+def _solve_lobby_captcha(text_content: bytes, icons_content: bytes):
+    with lobby_lock:
+        return break_interactive_captcha(text_content, icons_content)
 
 # Pirate captchas are small images. Anything else (e.g. the full HTML page that
 # old clients used to send) is rejected before it can take a place in the queue.
@@ -116,7 +126,9 @@ async def decaptcha_lobby(
         icons_content = await icons_image.read()
 
         try:
-            captcha_solution = break_interactive_captcha(text_content, icons_content)
+            captcha_solution = await run_in_threadpool(
+                _solve_lobby_captcha, text_content, icons_content
+            )
             logger.info(
                 f"Successfully solved interactive captcha, result: {captcha_solution}"
             )

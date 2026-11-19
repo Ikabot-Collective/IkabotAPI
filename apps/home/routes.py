@@ -1,5 +1,5 @@
 import time
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Request, Response
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
@@ -19,6 +19,16 @@ async def home(request: Request):
     )
 
 
-@router.get("/health", response_model=HealthResponse)
-async def health():
+@router.get(
+    "/health",
+    response_model=HealthResponse,
+    responses={503: {"model": HealthResponse, "description": "Token generation is unavailable"}},
+)
+async def health(request: Request, response: Response):
+    # A token generator that could not stop its browser stays closed until the
+    # API restarts, so report it instead of looking healthy.
+    generator = getattr(request.app.state, "token_generator", None)
+    if generator is None or generator.closed:
+        response.status_code = 503
+        return HealthResponse(status="unhealthy", uptime=time.time() - start_time)
     return HealthResponse(uptime=time.time() - start_time)
