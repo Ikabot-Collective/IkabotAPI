@@ -21,7 +21,8 @@ runs:
       uses: actions/cache@v4
       with:
         path: .venv
-        key: venv-${{ runner.os }}-py3.10-${{ hashFiles('**/poetry.lock') }}
+        # Keep native dependencies isolated by the pinned runner OS and architecture.
+        key: venv-${{ runner.os }}-ubuntu-24.04-${{ runner.arch }}-py3.10-${{ hashFiles('**/poetry.lock') }}
 
     - name: Install Project Dependencies
       # Always refresh the installed project, including its release version.

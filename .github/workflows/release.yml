@@ -25,7 +25,8 @@ defaults:
 jobs:
   update_version_number:
     name: Validate Release and Push Version
-    runs-on: ubuntu-latest
+    # Runs the same Playwright tests as the pull request workflow.
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     permissions:
       contents: write
@@ -120,7 +121,7 @@ jobs:
   build_release_notes:
     name: Generate Release Notes
     needs: update_version_number
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: write
       issues: read
@@ -170,7 +171,7 @@ jobs:
   create_release:
     name: Create Draft Release
     needs: [update_version_number, publish_docker]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: write
     steps:
@@ -190,7 +191,7 @@ jobs:
   publish_release:
     name: Publish Release
     needs: create_release
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: write
     steps:
@@ -202,7 +203,7 @@ jobs:
   close_milestone:
     name: Close Milestone
     needs: [update_version_number, publish_release]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       issues: write
     steps:
