@@ -190,6 +190,11 @@ IP addresses are hidden in the messages sent to Discord by default, so users' IP
 channel. Only the Discord copy is masked: the console and server logs keep the full message. Set
 `LOGS_WEBHOOK_HIDE_IPS=false` to send them unmasked.
 
+Messages are sent to Discord from a background thread, never from the request that logs them, so a slow
+or rate-limited webhook cannot delay the API. If Discord falls behind by more than 1000 messages, new
+messages are dropped from the Discord copy (the console keeps them). The Discord libraries' own logs,
+such as "Webhook rate limited", are not sent to the channel.
+
 Example `.env.example`:
 
 ```env
@@ -221,6 +226,8 @@ injected into `/v1/token`. It starts Chromium on the first token and reuses it, 
 browser context (user agent, locale, timezone) for each token. An async lock serves token requests in order,
 one at a time, while other API routes remain available. Docker keeps one Uvicorn worker; adding workers
 would create a separate browser in each process.
+If a failed token leaves a browser that cannot be stopped, token generation stays unavailable until the
+API restarts, and `/health` returns `503` with `"status": "unhealthy"` so monitors can detect it.
 The container entrypoint waits for Xvfb, then runs Uvicorn under Tini so that
 `docker stop` reaches the server and runs lifespan cleanup.
 
